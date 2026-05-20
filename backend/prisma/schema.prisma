@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SHIPPER
+  CARRIER
+  ADMIN
+}
+
+enum ShipmentStatus {
+  PENDING
+  MATCHING
+  NEGOTIATING
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum DealStatus {
+  PROPOSED
+  COUNTERED
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id        String     @id @default(cuid())
+  name      String
+  email     String     @unique
+  password  String
+  role      Role       @default(SHIPPER)
+  company   String?
+  createdAt DateTime   @default(now())
+  shipments Shipment[]
+  trucks    Truck[]
+  deals     Deal[]     @relation("DealOwner")
+}
+
+model Shipment {
+  id                        String         @id @default(cuid())
+  ownerId                   String
+  owner                     User           @relation(fields: [ownerId], references: [id])
+  cargoType                 String
+  category                  String
+  weightKg                  Int
+  requiredTempMin           Int
+  requiredTempMax           Int
+  pickup                    String
+  dropoff                   String
+  pickupLat                 Float
+  pickupLng                 Float
+  dropoffLat                Float
+  dropoffLng                Float
+  deliveryTime              DateTime
+  proposedPrice             Int
+  notes                     String?
+  strongSmell               Boolean        @default(false)
+  fragile                   Boolean        @default(false)
+  frozenRequired            Boolean        @default(false)
+  specialTemperature        Boolean        @default(false)
+  allowCombine              Boolean        @default(true)
+  compatibilityNote         String?
+  status                    ShipmentStatus @default(PENDING)
+  createdAt                 DateTime       @default(now())
+  matches                   Match[]
+  deals                     Deal[]
+}
+
+model Truck {
+  id               String   @id @default(cuid())
+  ownerId          String
+  owner            User     @relation(fields: [ownerId], references: [id])
+  type             String
+  plateNumber      String   @unique
+  maxCapacityKg    Int
+  remainingKg      Int
+  refrigerated     Boolean  @default(false)
+  tempMin          Int?
+  tempMax          Int?
+  currentRoute     String
+  currentLat       Float
+  currentLng       Float
+  eta              DateTime
+  active           Boolean  @default(true)
+  currentTemp      Float?
+  matches          Match[]
+  trackingEvents   TrackingEvent[]
+}
+
+model Match {
+  id                 String   @id @default(cuid())
+  shipmentId         String
+  shipment           Shipment @relation(fields: [shipmentId], references: [id])
+  truckId            String
+  truck              Truck    @relation(fields: [truckId], references: [id])
+  matchingScore      Int
+  compatibilityScore Int
+  distanceScore      Int
+  capacityScore      Int
+  timeScore          Int
+  estimatedSavings   Int
+  warnings           String[]
+  createdAt          DateTime @default(now())
+}
+
+model Deal {
+  id              String     @id @default(cuid())
+  shipmentId      String
+  shipment        Shipment   @relation(fields: [shipmentId], references: [id])
+  ownerId         String
+  owner           User       @relation("DealOwner", fields: [ownerId], references: [id])
+  proposedPrice   Int
+  counterPrice    Int?
+  finalPrice      Int?
+  status          DealStatus @default(PROPOSED)
+  createdAt       DateTime   @default(now())
+}
+
+model TrackingEvent {
+  id          String   @id @default(cuid())
+  truckId     String
+  truck       Truck    @relation(fields: [truckId], references: [id])
+  lat         Float
+  lng         Float
+  temperature Float
+  etaMinutes  Int
+  alert       String?
+  createdAt   DateTime @default(now())
+}
