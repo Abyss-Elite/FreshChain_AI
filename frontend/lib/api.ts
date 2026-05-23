@@ -6,8 +6,11 @@ interface RequestOptions extends RequestInit {
 
 async function apiCall(endpoint: string, options: RequestOptions = {}) {
   const url = `${API_URL}${endpoint}`;
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const headers = {
     "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
@@ -17,9 +20,11 @@ async function apiCall(endpoint: string, options: RequestOptions = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.statusText}`);
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(message || `API Error: ${response.statusText}`);
   }
 
+  if (response.status === 204) return null;
   return response.json();
 }
 
@@ -39,6 +44,7 @@ export const shipmentsApi = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+  delete: (id: string) => apiCall(`/api/shipments/${id}`, { method: "DELETE" }),
   getMatches: (shipmentId: string) => apiCall(`/api/match/${shipmentId}`),
 };
 
@@ -52,6 +58,7 @@ export const trucksApi = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+  delete: (id: string) => apiCall(`/api/trucks/${id}`, { method: "DELETE" }),
 };
 
 // Deals
@@ -64,6 +71,10 @@ export const dealsApi = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+};
+
+export const matchingApi = {
+  getContext: () => apiCall("/api/matching-context"),
 };
 
 // Aggregation

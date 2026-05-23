@@ -5,14 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Thêm hàm này vào cuối file lib/utils.ts của bạn:
-
-export function vnd(value: number | string) {
-  const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num)) return "0 ₫";
+export function vnd(value: number | string | null | undefined) {
+  const num = typeof value === "string" ? Number(value) : Number(value ?? 0);
+  if (Number.isNaN(num)) return "0 VND";
 
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
     currency: "VND",
+    maximumFractionDigits: 0,
   }).format(num);
+}
+
+export function onlyDigits(value: string) {
+  return value.replace(/\D/g, "");
 }

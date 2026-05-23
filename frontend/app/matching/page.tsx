@@ -1,340 +1,189 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { CheckCircle, Loader2, RefreshCw, Scale, Truck, Wallet, Zap } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Zap,
-  CheckCircle,
-  AlertCircle,
-  RefreshCw,
-  ArrowRight,
-} from "lucide-react";
-import { shipmentsApi } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { dealsApi, matchingApi } from "@/lib/api";
+import { onlyDigits, vnd } from "@/lib/utils";
 
 export default function MatchingPage() {
-  const [shipments, setShipments] = useState<any[]>([]);
-  const [matchesData, setMatchesData] = useState<any[]>([]);
+  const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [offerFor, setOfferFor] = useState<string | null>(null);
+  const [offer, setOffer] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
 
-  const loadMatchingData = async () => {
+  const load = async () => {
     try {
-      const data = await shipmentsApi.getAll();
-      setShipments(data);
-
-      if (data && data.length > 0) {
-        // Lấy danh sách kết hợp cho 3 đơn hàng đầu tiên
-        const matches = await Promise.all(
-          data
-            .slice(0, 3)
-            .map((ship: any) =>
-              shipmentsApi.getMatches(ship.id).catch(() => null),
-            ),
-        );
-
-        // Gộp phẳng mảng dữ liệu và loại bỏ phần tử rỗng
-        const validMatches = matches.filter(Boolean).flat();
-        setMatchesData(validMatches);
-      }
-    } catch (error) {
-      console.error("Lỗi khi tải dữ liệu ghép chuyến:", error);
+      setRefreshing(true);
+      setData(await matchingApi.getContext());
+    } catch (error: any) {
+      toast.error(error.message || "Khong tai duoc du lieu ghep hang");
     } finally {
       setLoading(false);
-      setIsRefreshing(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    loadMatchingData();
+    load();
   }, []);
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    loadMatchingData();
-  };
+  const createDeal = async (match: any, accepted: boolean) => {
+    const price = accepted ? match.shipment.proposedPrice : Number(offer);
+    if (!price || price <= 0) return toast.error("Gia thuong luong phai la so duong");
 
-  const mockMatches = [
-    {
-      id: "mock-1",
-      shipment: {
-        id: "SHP001",
-        cargo: "Rau lá Đà Lạt",
-        weight: 2000,
-        from: "Đà Lạt",
-        to: "TP.HCM",
-        price: 3000000,
-        tempMin: 2,
-        tempMax: 8,
-      },
-      truck: {
-        id: "TRK001",
-        plate: "51C-78001",
-        owner: "Nam Việt Cold Truck",
-        capacity: 5000,
-        remaining: 2500,
-        tempMin: -18,
-        tempMax: 6,
-      },
-      matchScore: 92,
-      warnings: [],
-    },
-    {
-      id: "mock-2",
-      shipment: {
-        id: "SHP002",
-        cargo: "Sầu riêng",
-        weight: 1500,
-        from: "Cần Thơ",
-        to: "TP.HCM",
-        price: 4500000,
-        tempMin: 8,
-        tempMax: 14,
-        specialNote: "Có mùi mạnh",
-      },
-      truck: {
-        id: "TRK002",
-        plate: "51C-78002",
-        owner: "Nam Việt Cold Truck",
-        capacity: 3500,
-        remaining: 1800,
-        tempMin: null,
-        tempMax: null,
-      },
-      matchScore: 68,
-      warnings: [
-        "Xe không lạnh - kiểm tra khả năng bảo quản thực phẩm",
-        "Sầu riêng có mùi mạnh - xem xét rủi ro ảnh hưởng đến các loại hàng ghép cùng",
-      ],
-    },
-  ];
-
-  // Dự phòng bằng mock data nếu API thực tế chưa trả về kết quả ghép chuyến nào
-  const displayMatches = matchesData.length > 0 ? matchesData : mockMatches;
-
-  const getScoreColor = (score: number) => {
-    if (score >= 85) return "text-emerald-600 bg-emerald-50 border-emerald-100";
-    if (score >= 60) return "text-amber-600 bg-amber-50 border-amber-100";
-    return "text-red-600 bg-red-50 border-red-100";
+    try {
+      const key = `${match.shipment.id}-${match.truck.id}`;
+      setBusy(key);
+      await dealsApi.create({
+        shipmentId: match.shipment.id,
+        truckId: match.truck.id,
+        proposedPrice: price,
+        status: accepted ? "ACCEPTED" : "PROPOSED",
+      });
+      toast.success(accepted ? "Da chap nhan ghep hang" : "Da gui gia thuong luong");
+      setOfferFor(null);
+      setOffer("");
+      load();
+    } catch (error: any) {
+      toast.error(error.message || "Khong tao duoc de xuat");
+    } finally {
+      setBusy(null);
+    }
   };
 
   if (loading) {
     return (
       <DashboardShell>
-        <div className="flex h-[50vh] items-center justify-center">
-          <p className="text-slate-500 animate-pulse font-medium">
-            Hệ thống đang tính toán các tuyến đường và tải trọng tối ưu...
-          </p>
+        <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
+          <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+          Dang tinh toan ghep hang...
         </div>
       </DashboardShell>
     );
   }
 
+  const isCarrier = data?.role === "CARRIER";
+  const target = data?.target;
+  const matches = data?.matches || [];
+
   return (
     <DashboardShell>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-            Ghép chuyến tự động
-          </h1>
-          <p className="mt-1 text-slate-600">
-            Xem các đề xuất ghép chuyến thời gian thực dựa trên sơ đồ tuyến
-            đường, tải trọng khả dụng và điều kiện nhiệt độ.
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 md:text-3xl">Ghep hang thong minh</h1>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            {isCarrier ? "Chu xe xem don hang phu hop voi xe cua minh." : "Chu hang xem xe phu hop voi don hang cua minh."}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="self-start sm:self-center border-slate-200 text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw
-            size={14}
-            className={`mr-2 ${isRefreshing ? "animate-spin" : ""}`}
-          />
-          Làm mới bộ lọc
+        <Button variant="outline" size="sm" onClick={load} disabled={refreshing}>
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          Lam moi
         </Button>
       </div>
 
-      {/* Matches List */}
-      <div className="space-y-5">
-        {displayMatches.map((match, i) => {
-          // Chuẩn hóa an toàn các trường dữ liệu động từ API hoặc Mock
-          const shipment = match.shipment || {};
-          const truck = match.truck || {};
-          const cargoName =
-            shipment.cargo || shipment.title || "Hàng hóa tổng hợp";
-          const ownerName = truck.owner || truck.driverName || "Nhà xe đối tác";
-          const matchScore =
-            match.matchScore || Math.floor(Math.random() * 40) + 60; // fallback score ngẫu nhiên nếu API thiếu
-          const warnings = match.warnings || [];
+      {target ? (
+        <Card className="mb-4 border border-emerald-200 bg-emerald-50/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-md bg-white p-2 text-emerald-700">
+              {isCarrier ? <Truck size={18} /> : <Scale size={18} />}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase text-emerald-700">{isCarrier ? "Xe dang xet" : "Don hang dang xet"}</p>
+              <h2 className="mt-1 truncate text-base font-bold text-slate-900" title={isCarrier ? target.plateNumber : target.cargoType}>
+                {isCarrier ? target.plateNumber : target.cargoType}
+              </h2>
+              <p className="mt-1 truncate text-sm text-slate-600" title={isCarrier ? target.currentRoute : `${target.pickup} -> ${target.dropoff}`}>
+                {isCarrier ? target.currentRoute : `${target.pickup} -> ${target.dropoff}`}
+              </p>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Card className="border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+          {isCarrier ? "Ban chua co xe nao de ghep don." : "Ban chua co don hang nao de ghep xe."}
+        </Card>
+      )}
+
+      <div className="space-y-3">
+        {matches.map((match: any) => {
+          const key = `${match.shipment.id}-${match.truck.id}`;
+          const primary = isCarrier ? match.shipment.cargoType : match.truck.plateNumber;
+          const secondary = isCarrier ? `${match.shipment.pickup} -> ${match.shipment.dropoff}` : match.truck.currentRoute;
+          const weight = isCarrier ? match.shipment.weightKg : match.truck.remainingKg;
+          const route = isCarrier ? `${match.shipment.pickup} -> ${match.shipment.dropoff}` : match.truck.currentRoute;
+          const temp = match.truck.refrigerated
+            ? `${match.truck.tempMin}C den ${match.truck.tempMax}C`
+            : "Khong lanh";
+          const price = isCarrier ? match.shipment.proposedPrice : match.estimatedSavings;
 
           return (
-            <Card
-              key={
-                match.id || `${match.shipment?.id || i}-${match.truck?.id || i}`
-              }
-              className="p-6 border border-slate-100 shadow-sm bg-white hover:border-slate-200/80 transition-all"
-            >
-              {/* Match Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
-                <div className="flex items-start gap-3.5">
-                  <div className="p-2 bg-amber-50 text-amber-500 rounded-xl shrink-0 mt-0.5">
-                    <Zap size={22} fill="currentColor" />
+            <Card key={key} className="border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Zap size={17} className="shrink-0 text-amber-500" />
+                    <h2 className="truncate text-base font-bold text-slate-900" title={primary}>{primary}</h2>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base leading-snug">
-                      Ghép: {cargoName}{" "}
-                      <span className="font-normal text-slate-400 mx-1">|</span>{" "}
-                      {ownerName}
-                    </h3>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="text-xs text-slate-500">
-                        Độ tương thích:
-                      </span>
-                      <span
-                        className={`text-xs font-bold px-2 py-0.5 border rounded-md ${getScoreColor(matchScore)}`}
-                      >
-                        {matchScore}%
-                      </span>
-                    </div>
-                  </div>
+                  <p className="mt-1 truncate text-sm text-slate-500" title={secondary}>{secondary}</p>
                 </div>
+                <Badge tone={match.matchingScore >= 80 ? "green" : "amber"} className="shrink-0">{match.matchingScore}%</Badge>
+              </div>
 
-                <div className="self-end sm:self-center">
-                  <Badge tone={matchScore >= 70 ? "green" : "amber"}>
-                    {matchScore >= 70 ? "Khuyến nghị cao" : "Cần xem xét"}
-                  </Badge>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">{isCarrier ? "Khoi luong" : "Tai con trong"}</p>
+                  <p className="mt-1 truncate text-sm font-bold text-slate-900" title={`${weight} kg`}>{Number(weight || 0).toLocaleString("vi-VN")} kg</p>
+                  <p className="mt-2 truncate text-xs text-slate-500" title={temp}>{temp}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-500">Lo trinh</p>
+                  <p className="mt-1 truncate text-sm font-bold text-slate-900" title={route}>{route}</p>
+                  <p className="mt-2 truncate text-xs text-slate-500" title={vnd(price)}>{vnd(price)}</p>
                 </div>
               </div>
 
-              {/* Details Grid */}
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 mb-6">
-                {/* Shipment Details */}
-                <div className="space-y-2.5">
-                  <h4 className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">
-                    Thông tin đơn hàng
-                  </h4>
-                  <div className="bg-slate-50/60 border border-slate-100 p-4 rounded-xl space-y-2.5 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Hàng hóa:</span>
-                      <span className="font-semibold text-slate-800">
-                        {cargoName}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Khối lượng:</span>
-                      <span className="font-medium text-slate-800">
-                        {(shipment.weight || 0).toLocaleString("vi-VN")} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Lộ trình:</span>
-                      <span className="font-medium text-slate-800 flex items-center gap-1.5">
-                        {shipment.from || shipment.pickup || "—"}
-                        <ArrowRight size={12} className="text-slate-400" />
-                        {shipment.to || shipment.dropoff || "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
-                      <span className="text-slate-600 font-medium">
-                        Giá đề xuất:
-                      </span>
-                      <span className="font-bold text-emerald-600">
-                        {shipment.price
-                          ? `₫${shipment.price.toLocaleString("vi-VN")}`
-                          : "Thương lượng"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Truck Details */}
-                <div className="space-y-2.5">
-                  <h4 className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">
-                    Thông tin phương tiện khả dụng
-                  </h4>
-                  <div className="bg-slate-50/60 border border-slate-100 p-4 rounded-xl space-y-2.5 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Biển kiểm soát:</span>
-                      <span className="font-semibold text-slate-800">
-                        {truck.plate || truck.licensePlate || "Chưa cập nhật"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">
-                        Tải trọng còn trống:
-                      </span>
-                      <span className="font-medium text-slate-800">
-                        {(truck.remaining || 0).toLocaleString("vi-VN")} /{" "}
-                        {(truck.capacity || 0).toLocaleString("vi-VN")} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Ngưỡng nhiệt độ:</span>
-                      <span className="font-medium text-slate-800">
-                        {truck.tempMin !== null && truck.tempMin !== undefined
-                          ? `${truck.tempMin}°C đến ${truck.tempMax}°C`
-                          : "Thùng kín tiêu chuẩn (Thường)"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
-                      <span className="text-slate-600 font-medium">
-                        Đối tác vận tải:
-                      </span>
-                      <span className="font-medium text-slate-800 truncate max-w-[180px]">
-                        {ownerName}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Warnings Component */}
-              {warnings.length > 0 && (
-                <div className="mb-6 space-y-2 p-4 bg-amber-50/60 border border-amber-100 rounded-xl">
-                  <div className="flex items-center gap-2 text-amber-800">
-                    <AlertCircle
-                      size={16}
-                      className="shrink-0 text-amber-600"
-                    />
-                    <p className="font-bold text-xs uppercase tracking-wide">
-                      Cảnh báo rủi ro ghép hàng phát hiện bởi AI
-                    </p>
-                  </div>
-                  <div className="space-y-1.5 pl-6">
-                    {warnings.map((warning: string, i: number) => (
-                      <p
-                        key={i}
-                        className="text-xs text-amber-800 list-item list-disc"
-                      >
-                        {warning.replace(/^[⚠️\s\-\*]+/, "")}{" "}
-                        {/* Xóa các ký tự cảnh báo trùng lặp nếu có */}
-                      </p>
-                    ))}
-                  </div>
+              {match.warnings?.length > 0 && (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+                  {match.warnings.slice(0, 2).map((warning: string, index: number) => (
+                    <p key={index} className="truncate text-xs text-amber-800" title={warning}>{warning}</p>
+                  ))}
                 </div>
               )}
 
-              {/* Action Trigger Buttons */}
-              <div className="flex gap-2.5 justify-end border-t border-slate-100 pt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-slate-600 border-slate-200 hover:bg-slate-50"
-                >
-                  Xem chi tiết tuyến
+              {offerFor === key && (
+                <div className="mt-3 rounded-md border border-slate-200 bg-white p-3">
+                  <label className="text-xs font-semibold text-slate-600">Gia de xuat</label>
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      inputMode="numeric"
+                      value={offer ? Number(offer).toLocaleString("vi-VN") : ""}
+                      onChange={(event) => setOffer(onlyDigits(event.target.value))}
+                      placeholder="1,500,000 VND"
+                    />
+                    <Button className="bg-emerald-600 text-white hover:bg-emerald-700" disabled={busy === key} onClick={() => createDeal(match, false)}>
+                      Gui
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{offer ? `${vnd(offer)} dang cho xac nhan` : "Chi nhap chu so"}</p>
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end">
+                <Button variant="outline" size="sm" onClick={() => setOfferFor(offerFor === key ? null : key)}>
+                  <Wallet size={14} />
+                  Thuong luong gia
                 </Button>
-                <Button
-                  size="sm"
-                  className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                >
-                  <CheckCircle size={15} />
-                  Chấp nhận phối chuyến
+                <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" disabled={busy === key} onClick={() => createDeal(match, true)}>
+                  <CheckCircle size={14} />
+                  Chap nhan ghep
                 </Button>
               </div>
             </Card>
