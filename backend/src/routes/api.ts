@@ -27,7 +27,7 @@ const shipmentSchema = z.object({
   frozenRequired: z.boolean().default(false),
   specialTemperature: z.boolean().default(false),
   allowCombine: z.boolean().default(true),
-  compatibilityNote: z.string().optional()
+  compatibilityNote: z.string().optional(),
 });
 
 const truckSchema = z.object({
@@ -41,94 +41,462 @@ const truckSchema = z.object({
   currentRoute: z.string().min(2),
   currentLat: z.number().default(11.94),
   currentLng: z.number().default(108.45),
-  eta: z.coerce.date()
+  eta: z.coerce.date(),
 });
 
-apiRouter.get("/health", (_req, res) => res.json({ ok: true, service: "FreshChain AI API" }));
+apiRouter.get("/health", (_req, res) =>
+  res.json({ ok: true, service: "FreshChain AI API" }),
+);
 
-apiRouter.get("/dashboard", asyncHandler(async (_req, res) => {
-  const [orders, activeTrucks, emptyTrucks, shipments] = await Promise.all([
-    prisma.shipment.count(),
-    prisma.truck.count({ where: { active: true } }),
-    prisma.truck.count({ where: { remainingKg: { gt: 1000 } } }),
-    prisma.shipment.findMany({ take: 8, orderBy: { createdAt: "desc" } })
-  ]);
-  res.json({
-    stats: { orders, activeTrucks, emptyTrucks, loadOptimization: 82, savings: 186500000 },
-    chart: [
-      { day: "T2", shipments: 18, savings: 12 },
-      { day: "T3", shipments: 22, savings: 15 },
-      { day: "T4", shipments: 19, savings: 11 },
-      { day: "T5", shipments: 31, savings: 21 },
-      { day: "T6", shipments: 27, savings: 19 },
-      { day: "T7", shipments: 35, savings: 24 }
-    ],
-    shipments
-  });
-}));
+apiRouter.get(
+  "/dashboard",
+  asyncHandler(async (_req, res) => {
+    const [orders, activeTrucks, emptyTrucks, shipments] = await Promise.all([
+      prisma.shipment.count(),
+      prisma.truck.count({ where: { active: true } }),
+      prisma.truck.count({ where: { remainingKg: { gt: 1000 } } }),
+      prisma.shipment.findMany({ take: 8, orderBy: { createdAt: "desc" } }),
+    ]);
+    res.json({
+      stats: {
+        orders,
+        activeTrucks,
+        emptyTrucks,
+        loadOptimization: 82,
+        savings: 186500000,
+      },
+      chart: [
+        { day: "T2", shipments: 18, savings: 12 },
+        { day: "T3", shipments: 22, savings: 15 },
+        { day: "T4", shipments: 19, savings: 11 },
+        { day: "T5", shipments: 31, savings: 21 },
+        { day: "T6", shipments: 27, savings: 19 },
+        { day: "T7", shipments: 35, savings: 24 },
+      ],
+      shipments,
+    });
+  }),
+);
 
-apiRouter.get("/shipments", asyncHandler(async (_req, res) => {
-  res.json(await prisma.shipment.findMany({ orderBy: { createdAt: "desc" }, include: { owner: true, deals: true } }));
-}));
+apiRouter.get(
+  "/shipments",
+  asyncHandler(async (_req, res) => {
+    res.json(
+      await prisma.shipment.findMany({
+        orderBy: { createdAt: "desc" },
+        include: { owner: true, deals: true },
+      }),
+    );
+  }),
+);
 
-apiRouter.post("/shipments", requireAuth, requireRole("SHIPPER", "ADMIN"), asyncHandler(async (req, res) => {
-  const data = shipmentSchema.parse(req.body);
-  const shipment = await prisma.shipment.create({ data: { ...data, ownerId: req.user!.id, status: "MATCHING" } });
-  res.status(201).json(shipment);
-}));
+apiRouter.post(
+  "/shipments",
+  requireAuth,
+  requireRole("SHIPPER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const data = shipmentSchema.parse(req.body);
+    const shipment = await prisma.shipment.create({
+      data: { ...data, ownerId: req.user!.id, status: "MATCHING" },
+    });
+    res.status(201).json(shipment);
+  }),
+);
 
-apiRouter.get("/trucks", asyncHandler(async (_req, res) => {
-  res.json(await prisma.truck.findMany({ orderBy: { eta: "asc" }, include: { owner: true } }));
-}));
+apiRouter.get(
+  "/trucks",
+  asyncHandler(async (_req, res) => {
+    res.json(
+      await prisma.truck.findMany({
+        orderBy: { eta: "asc" },
+        include: { owner: true },
+      }),
+    );
+  }),
+);
 
-apiRouter.post("/trucks", requireAuth, requireRole("CARRIER", "ADMIN"), asyncHandler(async (req, res) => {
-  const data = truckSchema.parse(req.body);
-  const truck = await prisma.truck.create({ data: { ...data, ownerId: req.user!.id } });
-  res.status(201).json(truck);
-}));
+apiRouter.post(
+  "/trucks",
+  requireAuth,
+  requireRole("CARRIER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const data = truckSchema.parse(req.body);
+    const truck = await prisma.truck.create({
+      data: { ...data, ownerId: req.user!.id },
+    });
+    res.status(201).json(truck);
+  }),
+);
 
-apiRouter.get("/match/:shipmentId", asyncHandler(async (req, res) => {
-  const shipment = await prisma.shipment.findUnique({ where: { id: req.params.shipmentId } });
-  if (!shipment) throw new HttpError(404, "Shipment not found");
-  const trucks = await prisma.truck.findMany({ where: { active: true }, include: { owner: true } });
-  const matches = trucks
-    .map((truck) => ({ truck, ...scoreTruck(shipment, truck) }))
-    .sort((a, b) => b.matchingScore - a.matchingScore)
-    .slice(0, 8);
-  res.json({ shipment, matches, combineSuggestion: "Ghep them don rau cu Da Lat -> TP.HCM 850kg de tang load factor len 91%" });
-}));
+apiRouter.get(
+  "/match/:shipmentId",
+  asyncHandler(async (req, res) => {
+    const shipment = await prisma.shipment.findUnique({
+      where: { id: req.params.shipmentId },
+    });
+    if (!shipment) throw new HttpError(404, "Shipment not found");
+    const trucks = await prisma.truck.findMany({
+      where: { active: true },
+      include: { owner: true },
+    });
+    const matches = trucks
+      .map((truck) => ({ truck, ...scoreTruck(shipment, truck) }))
+      .sort((a, b) => b.matchingScore - a.matchingScore)
+      .slice(0, 8);
+    res.json({
+      shipment,
+      matches,
+      combineSuggestion:
+        "Ghep them don rau cu Da Lat -> TP.HCM 850kg de tang load factor len 91%",
+    });
+  }),
+);
 
-apiRouter.post("/aggregate", asyncHandler(async (req, res) => {
-  const body = z.object({ shipmentId: z.string(), neededTrucks: z.number().int().min(1).max(20) }).parse(req.body);
-  const shipment = await prisma.shipment.findUnique({ where: { id: body.shipmentId } });
-  if (!shipment) throw new HttpError(404, "Shipment not found");
-  const trucks = await prisma.truck.findMany({ where: { active: true } });
-  res.json(aggregateTrucks(shipment, trucks, body.neededTrucks));
-}));
+apiRouter.post(
+  "/aggregate",
+  asyncHandler(async (req, res) => {
+    const body = z
+      .object({
+        shipmentId: z.string(),
+        neededTrucks: z.number().int().min(1).max(20),
+      })
+      .parse(req.body);
+    const shipment = await prisma.shipment.findUnique({
+      where: { id: body.shipmentId },
+    });
+    if (!shipment) throw new HttpError(404, "Shipment not found");
+    const trucks = await prisma.truck.findMany({ where: { active: true } });
+    res.json(aggregateTrucks(shipment, trucks, body.neededTrucks));
+  }),
+);
 
-apiRouter.post("/deals", requireAuth, asyncHandler(async (req, res) => {
-  const data = z.object({ shipmentId: z.string(), proposedPrice: z.number().int().positive() }).parse(req.body);
-  const deal = await prisma.deal.create({ data: { ...data, ownerId: req.user!.id } });
-  res.status(201).json(deal);
-}));
+apiRouter.post(
+  "/deals",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const data = z
+      .object({
+        shipmentId: z.string(),
+        proposedPrice: z.number().int().positive(),
+      })
+      .parse(req.body);
+    const deal = await prisma.deal.create({
+      data: { ...data, ownerId: req.user!.id },
+    });
+    res.status(201).json(deal);
+  }),
+);
 
-apiRouter.patch("/deals/:id", requireAuth, asyncHandler(async (req, res) => {
-  const data = z.object({
-    counterPrice: z.number().int().positive().optional(),
-    finalPrice: z.number().int().positive().optional(),
-    status: z.enum(["PROPOSED", "COUNTERED", "ACCEPTED", "REJECTED"])
-  }).parse(req.body);
-  res.json(await prisma.deal.update({ where: { id: req.params.id }, data }));
-}));
+apiRouter.get(
+  "/admin/analytics",
+  requireAuth,
+  requireRole("ADMIN"),
+  asyncHandler(async (_req, res) => {
+    res.json({
+      revenue: 428000000,
+      savedCost: 186500000,
+      routes: [
+        { route: "Da Lat -> TP.HCM", orders: 14, utilization: 88 },
+        { route: "Can Tho -> TP.HCM", orders: 9, utilization: 79 },
+        { route: "Nha Trang -> Da Nang", orders: 7, utilization: 74 },
+      ],
+    });
+  }),
+);
 
-apiRouter.get("/admin/analytics", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
-  res.json({
-    revenue: 428000000,
-    savedCost: 186500000,
-    routes: [
-      { route: "Da Lat -> TP.HCM", orders: 14, utilization: 88 },
-      { route: "Can Tho -> TP.HCM", orders: 9, utilization: 79 },
-      { route: "Nha Trang -> Da Nang", orders: 7, utilization: 74 }
-    ]
-  });
-}));
+// Thêm các hàm này vào file router hiện tại của bạn
+
+// ==========================================
+// 1. CÁC API LUỒNG DEAL (THƯƠNG LƯỢNG GIÁ)
+// ==========================================
+
+/**
+ * GET /deals
+ * Lấy danh sách deal liên quan đến user hiện tại
+ * - Nếu là SHIPPER: Xem các deal đánh vào các Shipment do mình sở hữu
+ * - Nếu là CARRIER: Xem các deal do chính mình tạo ra (chào giá cho các xe của mình)
+ */
+apiRouter.get(
+  "/deals",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const userRole = req.user!.role; // Giả định req.user có chứa role từ middleware auth
+
+    let deals;
+
+    if (userRole === "SHIPPER") {
+      // Tìm các deal thuộc về đơn hàng của Shipper này
+      deals = await prisma.deal.findMany({
+        where: {
+          shipment: {
+            ownerId: userId,
+          },
+        },
+        include: {
+          shipment: true,
+          owner: { select: { id: true, name: true } }, // Thông tin bên Carrier chào giá
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    } else if (userRole === "CARRIER") {
+      // Tìm các deal do chính Carrier này gửi đi
+      deals = await prisma.deal.findMany({
+        where: {
+          ownerId: userId,
+        },
+        include: {
+          shipment: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    } else {
+      // Nếu là ADMIN thì trả về toàn bộ
+      deals = await prisma.deal.findMany({
+        include: { shipment: true, owner: true },
+        orderBy: { createdAt: "desc" },
+      });
+    }
+
+    res.json(deals);
+  }),
+);
+
+const updateDealSchema = z.object({
+  counterPrice: z.number().int().positive().optional(),
+  finalPrice: z.number().int().positive().optional(),
+  status: z.enum(["PROPOSED", "COUNTERED", "ACCEPTED", "REJECTED"]),
+});
+
+apiRouter.patch(
+  "/deals/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const data = updateDealSchema.parse(req.body);
+
+    const currentDeal = await prisma.deal.findUnique({
+      where: { id },
+      include: { shipment: true },
+    });
+
+    if (!currentDeal) throw new HttpError(404, "Deal không tồn tại");
+
+    // Nếu trạng thái chuyển thành ACCEPTED -> Kích hoạt ACID Transaction chốt đơn xe
+    if (data.status === "ACCEPTED") {
+      const truckId = req.body.truckId;
+      if (!truckId) {
+        throw new HttpError(
+          400,
+          "Thiếu thông tin truckId để thực hiện chốt đơn xe",
+        );
+      }
+
+      const updatedData = await prisma.$transaction(async (tx) => {
+        // a. Cập nhật trạng thái Deal hiện tại thành ACCEPTED
+        const deal = await tx.deal.update({
+          where: { id },
+          data: {
+            status: "ACCEPTED",
+            finalPrice: data.finalPrice || currentDeal.proposedPrice,
+          },
+        });
+
+        // b. Cập nhật trạng thái Shipment sang BOOKED
+        await tx.shipment.update({
+          where: { id: currentDeal.shipmentId },
+          data: {
+            status: "BOOKED" as any,
+          },
+        });
+
+        // c. Trừ tải trọng còn lại (remainingKg) của Truck được chọn
+        const truck = await tx.truck.findUnique({ where: { id: truckId } });
+        if (!truck) throw new HttpError(404, "Xe không tồn tại");
+        if (truck.remainingKg < currentDeal.shipment.weightKg) {
+          throw new HttpError(
+            400,
+            "Xe không đủ tải trọng còn lại để nhận đơn hàng này",
+          );
+        }
+
+        await tx.truck.update({
+          where: { id: truckId },
+          data: {
+            remainingKg: {
+              decrement: currentDeal.shipment.weightKg,
+            },
+          },
+        });
+
+        // d. Tự động REJECT tất cả các deal khác của cùng Shipment này
+        await tx.deal.updateMany({
+          where: {
+            shipmentId: currentDeal.shipmentId,
+            id: { not: id },
+            status: { in: ["PROPOSED", "COUNTERED"] as any },
+          },
+          data: {
+            status: "REJECTED" as any,
+          },
+        });
+
+        return deal;
+      });
+
+      return res.json(updatedData);
+    }
+
+    // Nếu là các trạng thái bình thường khác (COUNTERED, REJECTED...)
+    const updatedDeal = await prisma.deal.update({
+      where: { id },
+      data: data as any,
+    });
+
+    res.json(updatedDeal);
+  }),
+);
+
+// ==========================================
+// 2. API QUẢN LÝ SHIPMENT & TRUCK LIFECYCLE
+// ==========================================
+
+/**
+ * PATCH /shipments/:id
+ * Cập nhật thông tin/trạng thái đơn hàng (Dành cho Shipper sở hữu đơn hoặc Admin)
+ */
+const updateShipmentSchema = shipmentSchema.partial().extend({
+  status: z
+    .enum(["MATCHING", "BOOKED", "IN_TRANSIT", "DELIVERED", "CANCELLED"])
+    .optional(),
+});
+
+apiRouter.patch(
+  "/shipments/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    // Parse dữ liệu qua schema của bạn mượt mà
+    const data = updateShipmentSchema.parse(req.body);
+
+    const shipment = await prisma.shipment.findUnique({ where: { id } });
+    if (!shipment) throw new HttpError(404, "Không tìm thấy đơn hàng");
+
+    if (shipment.ownerId !== req.user!.id && req.user!.role !== "ADMIN") {
+      throw new HttpError(403, "Bạn không có quyền chỉnh sửa đơn hàng này");
+    }
+
+    // Ép kiểu 'as any' ở đây để TypeScript bỏ qua việc so khớp Enum giữa Zod và Prisma
+    const updatedShipment = await prisma.shipment.update({
+      where: { id },
+      data: data as any,
+    });
+
+    res.json(updatedShipment);
+  }),
+);
+
+/**
+ * PATCH /trucks/:id
+ * Cập nhật trạng thái xe, tọa độ thực tế, tải trọng (Dành cho Carrier sở hữu xe hoặc Admin)
+ */
+const updateTruckSchema = truckSchema.partial().extend({
+  active: z.boolean().optional(),
+});
+
+apiRouter.patch(
+  "/trucks/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const data = updateTruckSchema.parse(req.body);
+
+    const truck = await prisma.truck.findUnique({ where: { id } });
+    if (!truck) throw new HttpError(404, "Không tìm thấy thông tin xe");
+
+    // Kiểm tra quyền: Chỉ chủ xe hoặc ADMIN mới được sửa
+    if (truck.ownerId !== req.user!.id && req.user!.role !== "ADMIN") {
+      throw new HttpError(403, "Bạn không có quyền chỉnh sửa thông tin xe này");
+    }
+
+    const updatedTruck = await prisma.truck.update({
+      where: { id },
+      data,
+    });
+
+    res.json(updatedTruck);
+  }),
+);
+
+// ==========================================
+// 3. API QUẢN LÝ USER / PROFILE
+// ==========================================
+
+/**
+ * GET /user/profile
+ * Xem thông tin profile cá nhân của user đang đăng nhập
+ */
+apiRouter.get(
+  "/user/profile",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+        // Thêm các trường mở rộng nếu schema của bạn có lưu
+        // phone: true,
+        // company: true,
+        // rating: true
+      },
+    });
+
+    if (!user) throw new HttpError(404, "Không tìm thấy thông tin tài khoản");
+    res.json(user);
+  }),
+);
+
+/**
+ * PUT /user/profile
+ * Cập nhật thông tin profile cá nhân
+ */
+const updateProfileSchema = z.object({
+  name: z.string().min(2).optional(),
+  phone: z.string().min(9).optional(),
+  company: z.string().optional(),
+  // Tránh việc tùy tiện đổi password trực tiếp ở đây, nên viết riêng api đổi pass nếu cần bảo mật cao.
+  // Nhưng nếu làm tinh gọn, bạn có thể băm (hash) password mới ở đây trước khi lưu vào DB.
+  password: z.string().min(6).optional(),
+});
+
+apiRouter.put(
+  "/user/profile",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const data = updateProfileSchema.parse(req.body);
+
+    // Nếu có cập nhật password, bạn cần import bcrypt hoặc thư viện mã hóa đang dùng để hash nó
+    // if (data.password) {
+    //   data.password = await bcrypt.hash(data.password, 10);
+    // }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user!.id },
+      data,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        // không trả password về client
+      },
+    });
+
+    res.json(updatedUser);
+  }),
+);
