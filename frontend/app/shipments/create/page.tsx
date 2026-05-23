@@ -1,81 +1,103 @@
 "use client";
 
 import { useState } from "react";
-import { DashboardShell } from "@/components/dashboard-shell";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { DashboardShell } from "@/components/dashboard-shell";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { shipmentsApi } from "@/lib/api";
+import { onlyDigits } from "@/lib/utils";
+import { vietnamLogisticsLocations } from "@/lib/vietnam-locations";
 
 export default function CreateShipmentPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const [formData, setFormData] = useState({
     cargoType: "",
+    category: "Thực phẩm tươi sống",
     weightKg: "",
-    requiredTempMin: "",
-    requiredTempMax: "",
+    requiredTempMin: "0",
+    requiredTempMax: "8",
     pickup: "",
     dropoff: "",
+    deliveryTime: "",
     proposedPrice: "",
+    notes: "",
     fragile: false,
     strongSmell: false,
+    frozenRequired: false,
+    allowCombine: true,
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setError(null);
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
 
-    // Kiểm tra dữ liệu đầu vào cơ bản trước khi gửi đi
     if (
-      !formData.cargoType ||
+      !formData.cargoType.trim() ||
       !formData.weightKg ||
       !formData.pickup ||
       !formData.dropoff ||
       !formData.proposedPrice
     ) {
-      setError("Vui lòng điền đầy đủ các trường thông tin bắt buộc (*)");
-      setIsSubmitting(false);
+      toast.error("Vui lòng điền đầy đủ thông tin bắt buộc");
+      return;
+    }
+    if (formData.pickup === formData.dropoff) {
+      toast.error("Điểm đi và điểm đến phải khác nhau");
+      return;
+    }
+    if (Number(formData.requiredTempMin) > Number(formData.requiredTempMax)) {
+      toast.error("Nhiệt độ tối thiểu không được lớn hơn tối đa");
       return;
     }
 
+    const payload = {
+      cargoType: formData.cargoType.trim(),
+      category: formData.category.trim() || "Hàng tổng hợp",
+      weightKg: Number(formData.weightKg),
+      requiredTempMin: Number(formData.requiredTempMin),
+      requiredTempMax: Number(formData.requiredTempMax),
+      pickup: formData.pickup,
+      dropoff: formData.dropoff,
+      pickupLat: 11.94,
+      pickupLng: 108.45,
+      dropoffLat: 10.82,
+      dropoffLng: 106.63,
+      deliveryTime: formData.deliveryTime
+        ? new Date(formData.deliveryTime).toISOString()
+        : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      proposedPrice: Number(formData.proposedPrice),
+      notes: formData.notes.trim() || undefined,
+      fragile: formData.fragile,
+      strongSmell: formData.strongSmell,
+      frozenRequired: formData.frozenRequired,
+      specialTemperature: true,
+      allowCombine: formData.allowCombine,
+    };
+
     try {
-      // Chuẩn hóa và ép kiểu dữ liệu khớp chính xác với Prisma Schema ở Backend
-      const payload = {
-        cargoType: formData.cargoType,
-        weightKg: Number(formData.weightKg),
-        requiredTempMin:
-          formData.requiredTempMin !== ""
-            ? Number(formData.requiredTempMin)
-            : null,
-        requiredTempMax:
-          formData.requiredTempMax !== ""
-            ? Number(formData.requiredTempMax)
-            : null,
-        pickup: formData.pickup,
-        dropoff: formData.dropoff,
-        proposedPrice: Number(formData.proposedPrice),
-        fragile: formData.fragile,
-        strongSmell: formData.strongSmell,
-        status: "MATCHING", // Trạng thái khởi tạo mặc định cho chu kỳ điều phối
-      };
-
+      setIsSubmitting(true);
       await shipmentsApi.create(payload);
-
-      // Chuyển hướng quay lại danh sách sau khi lưu thành công
+      toast.success("Đã tạo đơn hàng thành công");
       router.push("/shipments");
       router.refresh();
-    } catch (err: any) {
-      console.error("Lỗi khi tạo lô hàng:", err);
-      setError(
-        err?.response?.data?.message ||
-          err?.message ||
-          "Có lỗi xảy ra trong quá trình lưu đơn hàng.",
+    } catch (error: any) {
+      console.error("Lỗi tạo đơn hàng:", error);
+      toast.error(
+        error.message ||
+          "Không tạo được đơn hàng. Vui lòng kiểm tra kết nối mạng và thử lại.",
       );
     } finally {
       setIsSubmitting(false);
@@ -84,264 +106,260 @@ export default function CreateShipmentPage() {
 
   return (
     <DashboardShell>
-      {/* Header */}
-      <div className="mb-8">
+      <div className="mb-4">
         <Link
           href="/shipments"
-          className="flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4 text-sm font-medium transition-colors"
+          className="mb-3 flex w-fit items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
         >
           <ArrowLeft size={18} />
           Quay lại danh sách
         </Link>
-        <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-          Tạo đơn hàng mới
-        </h1>
-        <p className="mt-2 text-slate-600">
-          Đăng nhu cầu vận chuyển và đợi hệ thống AI ghép xe chuỗi cung ứng lạnh
-          phù hợp.
-        </p>
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+            Khu vực Chủ doanh nghiệp / Chủ hàng
+          </p>
+          <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-900 md:text-2xl">
+            Tạo đơn hàng vận chuyển
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Hệ thống tự động ghép xe phù hợp nhất theo tuyến, tải trọng và yêu
+            cầu bảo quản.
+          </p>
+        </div>
       </div>
 
-      <div className="max-w-2xl">
-        <Card className="p-8 border border-slate-100 shadow-sm bg-white rounded-xl">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Hiển thị thông báo lỗi nếu có */}
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm font-medium">
-                {error}
-              </div>
-            )}
+      <Card className="max-w-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>Tên hàng hóa *</Label>
+            <Input
+              value={formData.cargoType}
+              onChange={(e) =>
+                setFormData({ ...formData, cargoType: e.target.value })
+              }
+              placeholder="Rau Đà Lạt, tôm đông lạnh..."
+              disabled={isSubmitting}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Nhóm hàng</Label>
+            <Input
+              value={formData.category}
+              onChange={(e) =>
+                setFormData({ ...formData, category: e.target.value })
+              }
+              disabled={isSubmitting}
+            />
+          </div>
 
-            {/* Cargo Info */}
-            <div>
-              <h3 className="font-bold text-slate-900 mb-4 text-base border-b pb-2 border-slate-100">
-                Thông tin hàng hóa
-              </h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Loại hàng / Tên hàng hóa *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    disabled={isSubmitting}
-                    placeholder="VD: Sầu riêng Ri6, Tôm đông lạnh, Rau xà lách..."
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 disabled:text-slate-400 text-sm"
-                    value={formData.cargoType}
-                    onChange={(e) =>
-                      setFormData({ ...formData, cargoType: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Khối lượng (kg) *
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min="1"
-                      disabled={isSubmitting}
-                      placeholder="1000"
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 text-sm"
-                      value={formData.weightKg}
-                      onChange={(e) =>
-                        setFormData({ ...formData, weightKg: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Biên độ nhiệt độ an toàn (°C)
-                    </label>
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="number"
-                        disabled={isSubmitting}
-                        placeholder="Min"
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 text-sm"
-                        value={formData.requiredTempMin}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            requiredTempMin: e.target.value,
-                          })
-                        }
-                      />
-                      <span className="text-slate-400 font-medium">~</span>
-                      <input
-                        type="number"
-                        disabled={isSubmitting}
-                        placeholder="Max"
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 text-sm"
-                        value={formData.requiredTempMax}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            requiredTempMax: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Route */}
-            <div>
-              <h3 className="font-bold text-slate-900 mb-4 text-base border-b pb-2 border-slate-100">
-                Lộ trình vận chuyển
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Điểm đóng hàng (Pick up) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    disabled={isSubmitting}
-                    placeholder="VD: Kho Đà Lạt, Lâm Đồng"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 text-sm"
-                    value={formData.pickup}
-                    onChange={(e) =>
-                      setFormData({ ...formData, pickup: e.target.value })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Điểm trả hàng (Drop off) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    disabled={isSubmitting}
-                    placeholder="VD: Chợ đầu mối Bình Điền, TP.HCM"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 text-sm"
-                    value={formData.dropoff}
-                    onChange={(e) =>
-                      setFormData({ ...formData, dropoff: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Pricing */}
-            <div>
-              <h3 className="font-bold text-slate-900 mb-4 text-base border-b pb-2 border-slate-100">
-                Chi phí dự kiến
-              </h3>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Ngân sách tối đa (VNĐ) *
-                </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  disabled={isSubmitting}
-                  placeholder="3000000"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-slate-50 text-sm font-medium"
-                  value={formData.proposedPrice}
-                  onChange={(e) =>
-                    setFormData({ ...formData, proposedPrice: e.target.value })
-                  }
-                />
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Các đối tác vận tải dựa vào đây để tối ưu thuật toán ghép xe.
-                </p>
-              </div>
-            </div>
-
-            {/* Special Conditions */}
-            <div>
-              <h3 className="font-bold text-slate-900 mb-4 text-base border-b pb-2 border-slate-100">
-                Đặc tính bảo quản đặc biệt
-              </h3>
-              <div className="space-y-3 bg-slate-50/70 p-4 rounded-lg border border-slate-100">
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    disabled={isSubmitting}
-                    checked={formData.fragile}
-                    onChange={(e) =>
-                      setFormData({ ...formData, fragile: e.target.checked })
-                    }
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div className="text-sm">
-                    <p className="font-medium text-slate-700">
-                      Hàng dễ dập / Dễ vỡ
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      Yêu cầu không xếp đè vật nặng hoặc xếp chồng quá nhiều
-                      lớp.
-                    </p>
-                  </div>
-                </label>
-
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    disabled={isSubmitting}
-                    checked={formData.strongSmell}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        strongSmell: e.target.checked,
-                      })
-                    }
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <div className="text-sm">
-                    <p className="font-medium text-slate-700">
-                      Hàng có mùi đặc trưng mạnh
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      Tránh ghép chung chặng với các loại thực phẩm nhạy cảm bám
-                      mùi khác.
-                    </p>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-4 pt-6 border-t border-slate-100">
-              <Link href="/shipments" className="flex-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  disabled={isSubmitting}
-                >
-                  Hủy bỏ
-                </Button>
-              </Link>
-              <Button
-                type="submit"
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Khối lượng (kg) *</Label>
+              <Input
+                inputMode="numeric"
+                value={formData.weightKg}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    weightKg: onlyDigits(e.target.value),
+                  })
+                }
                 disabled={isSubmitting}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Đang tạo đơn...
-                  </>
-                ) : (
-                  "Tạo đơn hàng"
-                )}
-              </Button>
+              />
             </div>
-          </form>
-        </Card>
-      </div>
+            <div className="space-y-2">
+              <Label>Giá đề xuất *</Label>
+              <Input
+                inputMode="numeric"
+                value={
+                  formData.proposedPrice
+                    ? Number(formData.proposedPrice).toLocaleString("vi-VN")
+                    : ""
+                }
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    proposedPrice: onlyDigits(e.target.value),
+                  })
+                }
+                placeholder="1.500.000 VND"
+                disabled={isSubmitting}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-2 relative z-10">
+              <Label>Điểm đi *</Label>
+              <Select
+                value={formData.pickup}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, pickup: value })
+                }
+                disabled={isSubmitting}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Chọn tỉnh/thành phố" />
+                </SelectTrigger>
+                <SelectContent>
+                  {vietnamLogisticsLocations.map((location) => (
+                    <SelectItem key={location} value={location}>
+                      {location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 relative z-10">
+              <Label>Điểm đến *</Label>
+              <Select
+                value={formData.dropoff}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, dropoff: value })
+                }
+                disabled={isSubmitting}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Chọn tỉnh/thành phố" />
+                </SelectTrigger>
+                <SelectContent>
+                  {vietnamLogisticsLocations.map((location) => (
+                    <SelectItem key={location} value={location}>
+                      {location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label>Nhiệt độ tối thiểu (°C)</Label>
+              <Input
+                type="number"
+                value={formData.requiredTempMin}
+                onChange={(e) =>
+                  setFormData({ ...formData, requiredTempMin: e.target.value })
+                }
+                disabled={isSubmitting}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Nhiệt độ tối đa (°C)</Label>
+              <Input
+                type="number"
+                value={formData.requiredTempMax}
+                onChange={(e) =>
+                  setFormData({ ...formData, requiredTempMax: e.target.value })
+                }
+                disabled={isSubmitting}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Hạn giao</Label>
+              <Input
+                type="datetime-local"
+                value={formData.deliveryTime}
+                onChange={(e) =>
+                  setFormData({ ...formData, deliveryTime: e.target.value })
+                }
+                disabled={isSubmitting}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Ghi chú bảo quản</Label>
+            <Input
+              value={formData.notes}
+              onChange={(e) =>
+                setFormData({ ...formData, notes: e.target.value })
+              }
+              placeholder="Yêu cầu nhiệt độ, bốc xếp, lưu kho..."
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-700 sm:grid-cols-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.fragile}
+                onChange={(e) =>
+                  setFormData({ ...formData, fragile: e.target.checked })
+                }
+                disabled={isSubmitting}
+                className="cursor-pointer"
+              />
+              Hàng dễ vỡ
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.strongSmell}
+                onChange={(e) =>
+                  setFormData({ ...formData, strongSmell: e.target.checked })
+                }
+                disabled={isSubmitting}
+                className="cursor-pointer"
+              />
+              Hàng có mùi mạnh
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.frozenRequired}
+                onChange={(e) =>
+                  setFormData({ ...formData, frozenRequired: e.target.checked })
+                }
+                disabled={isSubmitting}
+                className="cursor-pointer"
+              />
+              Cần đông lạnh
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.allowCombine}
+                onChange={(e) =>
+                  setFormData({ ...formData, allowCombine: e.target.checked })
+                }
+                disabled={isSubmitting}
+                className="cursor-pointer"
+              />
+              Cho phép ghép hàng
+            </label>
+          </div>
+
+          <div className="flex gap-3 border-t border-slate-100 pt-4">
+            <Link href="/shipments" className="flex-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={isSubmitting}
+              >
+                Hủy
+              </Button>
+            </Link>
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1 bg-emerald-600 text-white hover:bg-emerald-700"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Đang tạo...
+                </>
+              ) : (
+                "Tạo đơn hàng"
+              )}
+            </Button>
+          </div>
+        </form>
+      </Card>
     </DashboardShell>
   );
 }

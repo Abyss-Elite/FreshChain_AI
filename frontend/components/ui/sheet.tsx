@@ -27,7 +27,7 @@ export function SheetContent({
         {children}
         <DialogPrimitive.Close className="absolute right-3 top-3 rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900">
           <X size={18} />
-          <span className="sr-only">Dong</span>
+          <span className="sr-only">Đóng</span>
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>

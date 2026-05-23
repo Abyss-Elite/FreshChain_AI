@@ -9,7 +9,7 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmText = "Xoa",
+  confirmText = "Xóa",
   loading,
   onOpenChange,
   onConfirm,
@@ -35,10 +35,10 @@ export function ConfirmDialog({
           <DialogPrimitive.Description className="mt-2 text-sm text-slate-600">{description}</DialogPrimitive.Description>
           <div className="mt-5 flex justify-end gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
-              Huy
+              Hủy
             </Button>
             <Button className="bg-rose-600 text-white hover:bg-rose-700" onClick={onConfirm} disabled={loading}>
-              {loading ? "Dang xu ly..." : confirmText}
+              {loading ? "Đang xử lý..." : confirmText}
             </Button>
           </div>
         </DialogPrimitive.Content>

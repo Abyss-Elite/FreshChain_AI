@@ -1,102 +1,98 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { ArrowLeft, Loader2, Save, Truck } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Truck, ArrowLeft, Save, Loader2 } from "lucide-react";
-import Link from "next/link";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trucksApi } from "@/lib/api";
+import { vietnamLogisticsLocations } from "@/lib/vietnam-locations";
+
+function splitRoute(route?: string) {
+  const [origin = "", destination = ""] = (route || "").split(" -> ");
+  return { origin, destination };
+}
 
 export default function EditTruckPage() {
   const router = useRouter();
   const params = useParams();
-  const truckId = params.id as string; // Lấy ID xe từ URL ngầm định
-
+  const truckId = params.id as string;
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     plateNumber: "",
     type: "",
-    ownerName: "",
-    maxCapacityKg: 0,
-    remainingKg: 0,
+    maxCapacityKg: "",
+    remainingKg: "",
+    refrigerated: true,
     tempMin: "",
     tempMax: "",
-    status: "idle",
+    routeOrigin: "",
+    routeDestination: "",
+    active: true,
   });
 
-  // 1. Tải dữ liệu hiện tại của xe lên Form dựa vào id
   useEffect(() => {
     if (!truckId) return;
-
     setLoading(true);
-    // Thay vì gọi API thật, có thể kiểm tra dữ liệu từ API hoặc fallback mock
     trucksApi
       .getAll()
       .then((trucks) => {
-        const currentTruck = trucks.find((t: any) => t.id === truckId);
-
-        if (currentTruck) {
-          setFormData({
-            plateNumber: currentTruck.plateNumber || currentTruck.plate || "",
-            type: currentTruck.type || "",
-            ownerName: currentTruck.owner?.name || currentTruck.owner || "",
-            maxCapacityKg:
-              currentTruck.maxCapacityKg || currentTruck.capacity || 0,
-            remainingKg:
-              currentTruck.remainingKg || currentTruck.remaining || 0,
-            tempMin: currentTruck.tempMin?.toString() || "",
-            tempMax: currentTruck.tempMax?.toString() || "",
-            status: currentTruck.status || "idle",
-          });
+        const currentTruck = trucks.find((truck: any) => truck.id === truckId);
+        if (!currentTruck) {
+          toast.error("Không tìm thấy xe");
+          router.push("/trucks");
+          return;
         }
+        const route = splitRoute(currentTruck.currentRoute);
+        setFormData({
+          plateNumber: currentTruck.plateNumber || "",
+          type: currentTruck.type || "",
+          maxCapacityKg: String(currentTruck.maxCapacityKg || ""),
+          remainingKg: String(currentTruck.remainingKg || ""),
+          refrigerated: Boolean(currentTruck.refrigerated),
+          tempMin: currentTruck.tempMin == null ? "" : String(currentTruck.tempMin),
+          tempMax: currentTruck.tempMax == null ? "" : String(currentTruck.tempMax),
+          routeOrigin: route.origin,
+          routeDestination: route.destination,
+          active: currentTruck.active !== false,
+        });
       })
-      .catch(console.error)
+      .catch((error: any) => toast.error(error.message || "Không tải được dữ liệu xe"))
       .finally(() => setLoading(false));
-  }, [truckId]);
+  }, [router, truckId]);
 
-  // 2. Xử lý thay đổi dữ liệu trong ô nhập liệu
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name.includes("Kg") ? Number(value) : value,
-    }));
-  };
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!formData.routeOrigin || !formData.routeDestination) return toast.error("Vui lòng chọn tuyến xe");
+    if (formData.routeOrigin === formData.routeDestination) return toast.error("Điểm đầu và điểm cuối tuyến phải khác nhau");
 
-  // 3. Xử lý submit lưu dữ liệu thay đổi
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
+    const payload = {
+      plateNumber: formData.plateNumber.trim().toUpperCase(),
+      type: formData.type.trim(),
+      maxCapacityKg: Number(formData.maxCapacityKg),
+      remainingKg: Number(formData.remainingKg),
+      refrigerated: formData.refrigerated,
+      tempMin: formData.refrigerated && formData.tempMin !== "" ? Number(formData.tempMin) : null,
+      tempMax: formData.refrigerated && formData.tempMax !== "" ? Number(formData.tempMax) : null,
+      currentRoute: `${formData.routeOrigin} -> ${formData.routeDestination}`,
+      active: formData.active,
+    };
 
     try {
-      // Chuẩn hóa dữ liệu sang dạng số trước khi gửi lên API
-      const payload = {
-        ...formData,
-        tempMin: formData.tempMin !== "" ? Number(formData.tempMin) : null,
-        tempMax: formData.tempMax !== "" ? Number(formData.tempMax) : null,
-      };
-
-      console.log("Dữ liệu cập nhật:", payload);
-      // Gọi API cập nhật: await trucksApi.update(truckId, payload);
-
-      alert("Cập nhật thông tin xe thành công!");
-      router.push("/trucks"); // Quay lại trang danh sách xe
+      setSubmitting(true);
+      await trucksApi.update(truckId, payload);
+      toast.success("Đã cập nhật thông tin xe");
+      router.push("/trucks");
       router.refresh();
-    } catch (error) {
-      console.error(error);
-      alert("Có lỗi xảy ra khi lưu dữ liệu.");
+    } catch (error: any) {
+      toast.error(error.message || "Không lưu được dữ liệu xe");
     } finally {
       setSubmitting(false);
     }
@@ -105,9 +101,9 @@ export default function EditTruckPage() {
   if (loading) {
     return (
       <DashboardShell>
-        <div className="flex items-center gap-2 text-slate-500 py-10 justify-center">
-          <Loader2 className="animate-spin h-5 w-5 text-emerald-500" />
-          <span>Đang truy vấn dữ liệu phương tiện...</span>
+        <div className="flex items-center justify-center gap-2 py-10 text-slate-500">
+          <Loader2 className="h-5 w-5 animate-spin text-emerald-500" />
+          <span>Đang tải dữ liệu xe...</span>
         </div>
       </DashboardShell>
     );
@@ -115,166 +111,60 @@ export default function EditTruckPage() {
 
   return (
     <DashboardShell>
-      {/* Nút quay lại */}
-      <div className="mb-6">
-        <Link
-          href="/trucks"
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 transition-colors"
-        >
+      <div className="mb-4">
+        <Link href="/trucks" className="mb-3 flex w-fit items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-800">
           <ArrowLeft size={16} />
           Quay lại danh sách xe
         </Link>
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-sky-700">Khu vực Chủ xe / Nhà xe</p>
+          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900 md:text-2xl">
+            <Truck className="text-emerald-500" size={24} />
+            Chỉnh sửa thông tin xe
+          </h1>
+        </div>
       </div>
 
-      {/* Tiêu đề */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-          <Truck className="text-emerald-500" size={28} />
-          Chỉnh sửa thông tin xe
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Mã định danh phương tiện hệ thống:{" "}
-          <span className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded text-slate-700">
-            {truckId}
-          </span>
-        </p>
-      </div>
+      <Card className="max-w-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-2"><Label>Biển số</Label><Input value={formData.plateNumber} onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })} required /></div>
+            <div className="space-y-2"><Label>Loại xe</Label><Input value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} required /></div>
+            <div className="space-y-2"><Label>Tải trọng tối đa (kg)</Label><Input inputMode="numeric" value={formData.maxCapacityKg} onChange={(e) => setFormData({ ...formData, maxCapacityKg: e.target.value.replace(/\D/g, "") })} required /></div>
+            <div className="space-y-2"><Label>Tải trọng còn trống (kg)</Label><Input inputMode="numeric" value={formData.remainingKg} onChange={(e) => setFormData({ ...formData, remainingKg: e.target.value.replace(/\D/g, "") })} required /></div>
+          </div>
 
-      {/* Form cấu hình dữ liệu */}
-      <Card className="max-w-2xl p-6 border border-slate-100 shadow-sm bg-white rounded-xl">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {/* Biển số xe */}
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={formData.refrigerated} onChange={(e) => setFormData({ ...formData, refrigerated: e.target.checked })} /> Xe có làm lạnh</label>
+          {formData.refrigerated && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-2"><Label>Nhiệt độ tối thiểu</Label><Input type="number" value={formData.tempMin} onChange={(e) => setFormData({ ...formData, tempMin: e.target.value })} /></div>
+              <div className="space-y-2"><Label>Nhiệt độ tối đa</Label><Input type="number" value={formData.tempMax} onChange={(e) => setFormData({ ...formData, tempMax: e.target.value })} /></div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="plateNumber">Biển kiểm soát *</Label>
-              <Input
-                id="plateNumber"
-                name="plateNumber"
-                value={formData.plateNumber}
-                onChange={handleChange}
-                placeholder="Ví dụ: 51C-78001"
-                required
-              />
+              <Label>Điểm đầu tuyến</Label>
+              <Select value={formData.routeOrigin} onValueChange={(value) => setFormData({ ...formData, routeOrigin: value })}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Chọn tỉnh/thành phố" /></SelectTrigger>
+                <SelectContent>{vietnamLogisticsLocations.map((location) => <SelectItem key={location} value={location}>{location}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
-
-            {/* Loại xe */}
             <div className="space-y-2">
-              <Label htmlFor="type">Loại xe / Quy cách thùng *</Label>
-              <Input
-                id="type"
-                name="type"
-                value={formData.type}
-                onChange={handleChange}
-                placeholder="Ví dụ: Xe lạnh 5 tấn"
-                required
-              />
-            </div>
-
-            {/* Tên nhà xe / chủ sở hữu */}
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="ownerName">Đơn vị vận chuyển / Chủ xe</Label>
-              <Input
-                id="ownerName"
-                name="ownerName"
-                value={formData.ownerName}
-                onChange={handleChange}
-                placeholder="Tên công ty logistics hoặc cá nhân chủ xe"
-              />
-            </div>
-
-            {/* Tải trọng tối đa */}
-            <div className="space-y-2">
-              <Label htmlFor="maxCapacityKg">Tải trọng tổng thể (kg) *</Label>
-              <Input
-                id="maxCapacityKg"
-                name="maxCapacityKg"
-                type="number"
-                value={formData.maxCapacityKg}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            {/* Tải trọng còn trống */}
-            <div className="space-y-2">
-              <Label htmlFor="remainingKg">
-                Tải trọng trống khả dụng (kg) *
-              </Label>
-              <Input
-                id="remainingKg"
-                name="remainingKg"
-                type="number"
-                value={formData.remainingKg}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            {/* Ngưỡng nhiệt độ dưới */}
-            <div className="space-y-2">
-              <Label htmlFor="tempMin">Nhiệt độ tối thiểu (°C)</Label>
-              <Input
-                id="tempMin"
-                name="tempMin"
-                type="number"
-                value={formData.tempMin}
-                onChange={handleChange}
-                placeholder="Để trống nếu là xe thường"
-              />
-            </div>
-
-            {/* Ngưỡng nhiệt độ trên */}
-            <div className="space-y-2">
-              <Label htmlFor="tempMax">Nhiệt độ tối đa (°C)</Label>
-              <Input
-                id="tempMax"
-                name="tempMax"
-                type="number"
-                value={formData.tempMax}
-                onChange={handleChange}
-                placeholder="Để trống nếu là xe thường"
-              />
-            </div>
-
-            {/* Trạng thái vận hành */}
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="status">Trạng thái điều xe hiện tại</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(val) =>
-                  setFormData((p) => ({ ...p, status: val }))
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Chọn trạng thái" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">
-                    Hoạt động (Đang đi tuyến)
-                  </SelectItem>
-                  <SelectItem value="idle">Chờ đơn (Đang trống tải)</SelectItem>
-                </SelectContent>
+              <Label>Điểm cuối tuyến</Label>
+              <Select value={formData.routeDestination} onValueChange={(value) => setFormData({ ...formData, routeDestination: value })}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Chọn tỉnh/thành phố" /></SelectTrigger>
+                <SelectContent>{vietnamLogisticsLocations.map((location) => <SelectItem key={location} value={location}>{location}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
 
-          {/* Cụm nút tác vụ ở cuối Form */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            <Link href="/trucks">
-              <Button type="button" variant="outline">
-                Hủy bỏ
-              </Button>
-            </Link>
-            <Button
-              type="submit"
-              disabled={submitting}
-              className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {submitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save size={16} />
-              )}
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" checked={formData.active} onChange={(e) => setFormData({ ...formData, active: e.target.checked })} /> Đang hoạt động</label>
+
+          <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+            <Link href="/trucks"><Button type="button" variant="outline">Hủy</Button></Link>
+            <Button type="submit" disabled={submitting} className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700">
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save size={16} />}
               Lưu thay đổi
             </Button>
           </div>

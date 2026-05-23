@@ -31,35 +31,35 @@ export default function AdminPage() {
   const routes = data?.routes || [];
   return (
     <AppShell
-      title="Admin Analytics"
-      subtitle="Admin theo doi user, don hang, tuyen van chuyen va bao cao van hanh."
+      title="Phân tích vận hành"
+      subtitle="Quản trị người dùng, đơn hàng, tuyến vận chuyển và báo cáo vận hành."
     >
       {loading ? (
-        <p>Loading...</p>
+        <p>Đang tải...</p>
       ) : (
         <div className="grid gap-4 md:grid-cols-4">
           <MetricCard
-            title="Users"
+            title="Người dùng"
             value="63"
-            caption="Shipper, carrier, admin"
+            caption="Chủ hàng, chủ xe, quản trị"
             icon={Users}
           />
           <MetricCard
-            title="Orders"
+            title="Đơn hàng"
             value="30"
-            caption="Demo seed data"
+            caption="Dữ liệu vận hành"
             icon={Package}
           />
           <MetricCard
-            title="Revenue"
+            title="Doanh thu"
             value={`${Math.round(data.revenue / 1e6)}M`}
             caption="VND GMV"
             icon={DollarSign}
           />
           <MetricCard
-            title="Reports"
+            title="Báo cáo"
             value="7"
-            caption="Can xu ly"
+            caption="Cần xử lý"
             icon={BarChart3}
           />
         </div>
@@ -67,7 +67,7 @@ export default function AdminPage() {
       <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_380px]">
         <Card>
           <CardHeader>
-            <CardTitle>Route utilization</CardTitle>
+            <CardTitle>Hiệu suất tuyến</CardTitle>
           </CardHeader>
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
@@ -87,13 +87,13 @@ export default function AdminPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Quan ly bao cao</CardTitle>
+            <CardTitle>Quản lý báo cáo</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {[
-              "Temperature alert tren xe 51C-78001",
-              "Xe cham 20 phut tuyen Can Tho",
-              "Don SHP-1025 dang negotiating qua 2h",
+              "Cảnh báo nhiệt độ trên xe 51C-78001",
+              "Xe chậm 20 phút tuyến Cần Thơ",
+              "Đơn SHP-1025 đang thương lượng quá 2 giờ",
             ].map((item) => (
               <div key={item} className="rounded-md border p-3 text-sm">
                 {item}

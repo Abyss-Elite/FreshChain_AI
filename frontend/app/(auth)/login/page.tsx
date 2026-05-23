@@ -19,7 +19,7 @@ export default function LoginPage() {
     <main className="grid min-h-screen place-items-center bg-slate-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Dang nhap FreshChain AI</CardTitle>
+          <CardTitle>Đăng nhập FreshChain Logistics</CardTitle>
         </CardHeader>
         <CardContent>
           <form
@@ -29,20 +29,20 @@ export default function LoginPage() {
                 const data = await authApi.login(values.email, values.password);
                 localStorage.setItem("token", data.token);
                 localStorage.setItem("user", JSON.stringify(data.user));
-                toast.success("Dang nhap thanh cong");
+                toast.success("Đăng nhập thành công");
                 router.push("/matching");
               } catch (error: any) {
-                toast.error(error.message || "Khong the dang nhap");
+                toast.error(error.message || "Không thể đăng nhập");
               }
             })}
           >
             <Field label="Email"><Input {...register("email")} /></Field>
-            <Field label="Mat khau"><Input type="password" {...register("password")} /></Field>
+            <Field label="Mật khẩu"><Input type="password" {...register("password")} /></Field>
             <Button className="w-full" disabled={formState.isSubmitting}>
-              {formState.isSubmitting ? "Dang xu ly..." : "Dang nhap"}
+              {formState.isSubmitting ? "Đang xử lý..." : "Đăng nhập"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
-              Chua co tai khoan? <Link className="text-emerald-600" href="/register">Dang ky</Link>
+              Chưa có tài khoản? <Link className="text-emerald-600" href="/register">Đăng ký</Link>
             </p>
           </form>
         </CardContent>

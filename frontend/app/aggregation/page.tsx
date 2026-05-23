@@ -159,7 +159,7 @@ export default function AggregationPage() {
           {/* HIỂN THỊ KẾT QUẢ ĐỘI XE GOM */}
           <Card>
             <CardHeader>
-              <CardTitle>Kết quả Aggregation từ FreshChain AI</CardTitle>
+              <CardTitle>Kết quả ghép nhiều xe từ FreshChain Logistics</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {!aggregationResult ? (

@@ -132,7 +132,7 @@ export default function CompatibilityPage() {
         <div className="space-y-4">
           {loadingMatches ? (
             <div className="flex justify-center items-center py-20 gap-2 text-muted-foreground">
-              <Loader2 className="animate-spin" /> Động cơ AI đang tính điểm
+              <Loader2 className="animate-spin" /> Hệ thống đang tính điểm tương thích
               tương thích...
             </div>
           ) : !matchingData ||

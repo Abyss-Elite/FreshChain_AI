@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
+import { useUser } from "@/contexts/user-context";
 import {
   ChevronDown,
   FileText,
@@ -10,25 +12,27 @@ import {
   Package,
   Truck,
   Zap,
+  AlertCircle,
 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
-  { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
+  { label: "Tổng quan", icon: LayoutDashboard, href: "/dashboard" },
   {
-    label: "Xe",
+    label: "Đội xe",
     icon: Truck,
-    submenu: [{ label: "Danh sach xe", href: "/trucks" }],
+    submenu: [{ label: "Danh sách xe", href: "/trucks" }],
   },
   {
-    label: "Don hang",
+    label: "Đơn hàng",
     icon: Package,
-    submenu: [{ label: "Danh sach don", href: "/shipments" }],
+    submenu: [{ label: "Danh sách đơn", href: "/shipments" }],
   },
-  { label: "Ghep hang", icon: Zap, href: "/matching" },
-  { label: "Thuong luong", icon: FileText, href: "/deals" },
+  { label: "Ghép hàng", icon: Zap, href: "/matching" },
+  { label: "Thương lượng", icon: FileText, href: "/deals" },
 ];
 
 export function Sidebar({
@@ -39,9 +43,24 @@ export function Sidebar({
   onClose: () => void;
 }) {
   const pathname = usePathname();
-  const [expanded, setExpanded] = useState<string | null>("Xe");
+  const router = useRouter();
+  const { user, logout } = useUser();
+  const [expanded, setExpanded] = useState<string | null>("Đội xe");
 
-  const active = (href?: string) => !!href && (pathname === href || pathname.startsWith(`${href}/`));
+  const active = (href?: string) =>
+    !!href && (pathname === href || pathname.startsWith(`${href}/`));
+
+  const handleLogout = async () => {
+    try {
+      logout();
+      toast.success("Đã đăng xuất thành công");
+      router.push("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Lỗi đăng xuất:", error);
+      toast.error("Lỗi đăng xuất. Vui lòng thử lại.");
+    }
+  };
 
   return (
     <>
@@ -56,8 +75,10 @@ export function Sidebar({
             FC
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold">FreshChain AI</p>
-            <p className="truncate text-xs text-slate-400">Smart logistics</p>
+            <p className="truncate text-sm font-bold">FreshChain Logistics</p>
+            <p className="truncate text-xs text-slate-400">
+              Ghép hàng thông minh
+            </p>
           </div>
         </div>
 
@@ -78,7 +99,10 @@ export function Sidebar({
                       <Icon size={18} />
                       {item.label}
                     </span>
-                    <ChevronDown size={16} className={cn("transition", isExpanded && "rotate-180")} />
+                    <ChevronDown
+                      size={16}
+                      className={cn("transition", isExpanded && "rotate-180")}
+                    />
                   </button>
                   {isExpanded && (
                     <div className="mt-1 space-y-1 border-l border-white/10 pl-3">
@@ -89,7 +113,8 @@ export function Sidebar({
                           onClick={onClose}
                           className={cn(
                             "block rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-white/10 hover:text-white",
-                            active(sub.href) && "bg-emerald-500/15 text-emerald-300",
+                            active(sub.href) &&
+                              "bg-emerald-500/15 text-emerald-300",
                           )}
                         >
                           {sub.label}
@@ -118,23 +143,50 @@ export function Sidebar({
           })}
         </nav>
 
-        <div className="border-t border-white/10 p-3">
+        <div className="border-t border-white/10 space-y-3 p-3">
+          {user && (
+            <div className="rounded-md bg-white/5 p-2 text-xs">
+              <div className="flex items-center gap-2 text-emerald-300 mb-1">
+                {user.role === "SHIPPER" ? (
+                  <Truck size={14} />
+                ) : user.role === "CARRIER" ? (
+                  <Package size={14} />
+                ) : (
+                  <AlertCircle size={14} />
+                )}
+                <span className="font-semibold">
+                  {user.role === "SHIPPER"
+                    ? "Chủ Nhà Xe"
+                    : user.role === "CARRIER"
+                      ? "Chủ Hàng"
+                      : "Quản Trị"}
+                </span>
+              </div>
+              <p className="text-slate-400 truncate">{user.email}</p>
+              {user.company && (
+                <p className="text-slate-400 text-xs truncate mt-1">
+                  {user.company}
+                </p>
+              )}
+            </div>
+          )}
           <Button
             variant="ghost"
-            className="w-full justify-start text-slate-300 hover:bg-white/10 hover:text-white"
-            onClick={() => {
-              localStorage.removeItem("token");
-              localStorage.removeItem("user");
-              window.location.href = "/login";
-            }}
+            className="w-full justify-start text-slate-300 hover:bg-red-500/20 hover:text-red-300"
+            onClick={handleLogout}
           >
             <LogOut size={18} />
-            Dang xuat
+            Đăng xuất
           </Button>
         </div>
       </aside>
 
-      {open && <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={onClose} />}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={onClose}
+        />
+      )}
     </>
   );
 }

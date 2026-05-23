@@ -19,7 +19,7 @@ export default function RegisterPage() {
     <main className="grid min-h-screen place-items-center bg-slate-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Tao tai khoan</CardTitle>
+          <CardTitle>Tạo tài khoản</CardTitle>
         </CardHeader>
         <CardContent>
           <form
@@ -29,29 +29,29 @@ export default function RegisterPage() {
                 const data = await authApi.register(values);
                 localStorage.setItem("token", data.token);
                 localStorage.setItem("user", JSON.stringify(data.user));
-                toast.success("Tao tai khoan thanh cong");
+                toast.success("Tạo tài khoản thành công");
                 router.push("/matching");
               } catch (error: any) {
-                toast.error(error.message || "Khong the tao tai khoan");
+                toast.error(error.message || "Không thể tạo tài khoản");
               }
             })}
           >
-            <Field label="Ho ten"><Input {...register("name")} /></Field>
-            <Field label="Cong ty"><Input {...register("company")} /></Field>
+            <Field label="Họ tên"><Input {...register("name")} /></Field>
+            <Field label="Công ty"><Input {...register("company")} /></Field>
             <Field label="Email"><Input type="email" {...register("email")} /></Field>
-            <Field label="Mat khau"><Input type="password" {...register("password")} /></Field>
-            <Field label="Vai tro">
+            <Field label="Mật khẩu"><Input type="password" {...register("password")} /></Field>
+            <Field label="Vai trò">
               <Select {...register("role")}>
-                <option value="SHIPPER">Chu hang</option>
-                <option value="CARRIER">Chu xe</option>
-                <option value="ADMIN">Admin</option>
+                <option value="SHIPPER">Chủ hàng</option>
+                <option value="CARRIER">Chủ xe</option>
+                <option value="ADMIN">Quản trị</option>
               </Select>
             </Field>
             <Button className="w-full" disabled={formState.isSubmitting}>
-              {formState.isSubmitting ? "Dang xu ly..." : "Dang ky"}
+              {formState.isSubmitting ? "Đang xử lý..." : "Đăng ký"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
-              Da co tai khoan? <Link className="text-emerald-600" href="/login">Dang nhap</Link>
+              Đã có tài khoản? <Link className="text-emerald-600" href="/login">Đăng nhập</Link>
             </p>
           </form>
         </CardContent>

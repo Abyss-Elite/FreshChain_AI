@@ -20,8 +20,15 @@ async function apiCall(endpoint: string, options: RequestOptions = {}) {
   });
 
   if (!response.ok) {
-    const message = await response.text().catch(() => response.statusText);
-    throw new Error(message || `API Error: ${response.statusText}`);
+    const rawMessage = await response.text().catch(() => response.statusText);
+    let message = rawMessage;
+    try {
+      const parsed = JSON.parse(rawMessage);
+      message = parsed.message || parsed.issues?.[0]?.message || rawMessage;
+    } catch {
+      message = rawMessage;
+    }
+    throw new Error(message || `Lỗi API: ${response.statusText}`);
   }
 
   if (response.status === 204) return null;
