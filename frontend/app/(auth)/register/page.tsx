@@ -42,8 +42,8 @@ export default function RegisterPage() {
             <Field label="Mật khẩu"><Input type="password" {...register("password")} /></Field>
             <Field label="Vai trò">
               <Select {...register("role")}>
-                <option value="SHIPPER">Chủ hàng</option>
-                <option value="CARRIER">Chủ xe</option>
+                <option value="SHIPPER">Chủ Nhà Xe</option>
+                <option value="CARRIER">Chủ Hàng</option>
                 <option value="ADMIN">Quản trị</option>
               </Select>
             </Field>

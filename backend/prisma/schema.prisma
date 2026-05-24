@@ -90,6 +90,7 @@ model Truck {
   active           Boolean  @default(true)
   currentTemp      Float?
   matches          Match[]
+  deals            Deal[]
   trackingEvents   TrackingEvent[]
 }
 
@@ -113,6 +114,8 @@ model Deal {
   id              String     @id @default(cuid())
   shipmentId      String
   shipment        Shipment   @relation(fields: [shipmentId], references: [id])
+  truckId         String?
+  truck           Truck?     @relation(fields: [truckId], references: [id])
   ownerId         String
   owner           User       @relation("DealOwner", fields: [ownerId], references: [id])
   proposedPrice   Int

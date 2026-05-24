@@ -7,6 +7,7 @@ import morgan from "morgan";
 import { Server } from "socket.io";
 import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
+import { ZodError } from "zod";
 
 dotenv.config();
 
@@ -25,6 +26,13 @@ app.use("/api/auth", authRouter);
 app.use("/api", apiRouter);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (err instanceof ZodError) {
+    const message = err.issues
+      .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
+      .join("; ");
+    return res.status(400).json({ message, issues: err.issues });
+  }
+
   const status = err.status || 400;
   res.status(status).json({ message: err.message || "Unexpected error", issues: err.issues });
 });

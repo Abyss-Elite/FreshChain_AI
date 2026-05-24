@@ -7,40 +7,45 @@ import { prisma } from "../utils/prisma.js";
 
 export const apiRouter = Router();
 
+const optionalText = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().optional(),
+);
+
 const shipmentSchema = z.object({
   cargoType: z.string().min(2),
   category: z.string().min(2),
-  weightKg: z.number().int().positive(),
-  requiredTempMin: z.number().int(),
-  requiredTempMax: z.number().int(),
+  weightKg: z.coerce.number().int().positive(),
+  requiredTempMin: z.coerce.number().int(),
+  requiredTempMax: z.coerce.number().int(),
   pickup: z.string().min(2),
   dropoff: z.string().min(2),
-  pickupLat: z.number().default(11.94),
-  pickupLng: z.number().default(108.45),
-  dropoffLat: z.number().default(10.82),
-  dropoffLng: z.number().default(106.63),
+  pickupLat: z.coerce.number().default(11.94),
+  pickupLng: z.coerce.number().default(108.45),
+  dropoffLat: z.coerce.number().default(10.82),
+  dropoffLng: z.coerce.number().default(106.63),
   deliveryTime: z.coerce.date(),
-  proposedPrice: z.number().int().positive(),
-  notes: z.string().optional(),
-  strongSmell: z.boolean().default(false),
-  fragile: z.boolean().default(false),
-  frozenRequired: z.boolean().default(false),
-  specialTemperature: z.boolean().default(false),
-  allowCombine: z.boolean().default(true),
-  compatibilityNote: z.string().optional(),
+  proposedPrice: z.coerce.number().int().positive(),
+  notes: optionalText,
+  strongSmell: z.coerce.boolean().default(false),
+  fragile: z.coerce.boolean().default(false),
+  frozenRequired: z.coerce.boolean().default(false),
+  specialTemperature: z.coerce.boolean().default(false),
+  allowCombine: z.coerce.boolean().default(true),
+  compatibilityNote: optionalText,
 });
 
 const truckSchema = z.object({
   type: z.string().min(2),
   plateNumber: z.string().min(5),
-  maxCapacityKg: z.number().int().positive(),
-  remainingKg: z.number().int().positive(),
-  refrigerated: z.boolean(),
-  tempMin: z.number().int().optional(),
-  tempMax: z.number().int().optional(),
+  maxCapacityKg: z.coerce.number().int().positive(),
+  remainingKg: z.coerce.number().int().nonnegative(),
+  refrigerated: z.coerce.boolean(),
+  tempMin: z.coerce.number().int().nullable().optional(),
+  tempMax: z.coerce.number().int().nullable().optional(),
   currentRoute: z.string().min(2),
-  currentLat: z.number().default(11.94),
-  currentLng: z.number().default(108.45),
+  currentLat: z.coerce.number().default(11.94),
+  currentLng: z.coerce.number().default(108.45),
   eta: z.coerce.date(),
 });
 
@@ -79,6 +84,63 @@ apiRouter.get(
 );
 
 apiRouter.get(
+  "/matching-context",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+
+    if (role === "SHIPPER") {
+      const myTrucks = await prisma.truck.findMany({
+        where: { ownerId: userId },
+        orderBy: { eta: "asc" },
+      });
+      const myShipments = await prisma.shipment.findMany({
+        where: { status: "MATCHING" },
+        orderBy: { createdAt: "desc" },
+      });
+      const target = myTrucks[0] || null;
+      const matches = target
+        ? myShipments
+            .map((shipment) => ({
+              shipment,
+              truck: target,
+              ...scoreTruck(shipment, target),
+            }))
+            .sort((a, b) => b.matchingScore - a.matchingScore)
+        : [];
+
+      return res.json({ role, myTrucks, myShipments, target, matches });
+    }
+
+    if (role === "CARRIER") {
+      const myShipments = await prisma.shipment.findMany({
+        where: { ownerId: userId, status: { in: ["PENDING", "MATCHING"] } },
+        orderBy: { createdAt: "desc" },
+      });
+      const trucks = await prisma.truck.findMany({
+        where: { active: true },
+        orderBy: { eta: "asc" },
+      });
+      const target = myShipments[0] || null;
+      const matches = target
+        ? trucks
+            .map((truck) => ({
+              shipment: target,
+              truck,
+              ...scoreTruck(target, truck),
+            }))
+            .sort((a, b) => b.matchingScore - a.matchingScore)
+        : [];
+
+      return res.json({ role, myShipments, target, matches });
+    }
+
+    res.json({ role, myTrucks: [], myShipments: [], target: null, matches: [] });
+  }),
+);
+
+apiRouter.get(
   "/shipments",
   asyncHandler(async (_req, res) => {
     res.json(
@@ -93,7 +155,7 @@ apiRouter.get(
 apiRouter.post(
   "/shipments",
   requireAuth,
-  requireRole("SHIPPER", "ADMIN"),
+  requireRole("CARRIER", "ADMIN"),
   asyncHandler(async (req, res) => {
     const data = shipmentSchema.parse(req.body);
     const shipment = await prisma.shipment.create({
@@ -118,11 +180,25 @@ apiRouter.get(
 apiRouter.post(
   "/trucks",
   requireAuth,
-  requireRole("CARRIER", "ADMIN"),
+  requireRole("SHIPPER", "ADMIN"),
   asyncHandler(async (req, res) => {
     const data = truckSchema.parse(req.body);
+    if (data.remainingKg > data.maxCapacityKg) {
+      throw new HttpError(400, "Tải trọng còn trống không được lớn hơn tải trọng tối đa");
+    }
+    if (data.refrigerated && (data.tempMin == null || data.tempMax == null)) {
+      throw new HttpError(400, "Xe lạnh cần nhập nhiệt độ tối thiểu và tối đa");
+    }
+    if (data.refrigerated && data.tempMin! > data.tempMax!) {
+      throw new HttpError(400, "Nhiệt độ tối thiểu không được lớn hơn tối đa");
+    }
     const truck = await prisma.truck.create({
-      data: { ...data, ownerId: req.user!.id },
+      data: {
+        ...data,
+        tempMin: data.refrigerated ? data.tempMin : null,
+        tempMax: data.refrigerated ? data.tempMax : null,
+        ownerId: req.user!.id,
+      },
     });
     res.status(201).json(truck);
   }),
@@ -139,16 +215,87 @@ apiRouter.get(
       where: { active: true },
       include: { owner: true },
     });
-    const matches = trucks
+    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    let matches = trucks
       .map((truck) => ({ truck, ...scoreTruck(shipment, truck) }))
-      .sort((a, b) => b.matchingScore - a.matchingScore)
-      .slice(0, 8);
+      .sort((a, b) => b.matchingScore - a.matchingScore);
+
+    if (limit && Number.isInteger(limit) && limit > 0) {
+      matches = matches.slice(0, limit);
+    }
+
     res.json({
       shipment,
       matches,
       combineSuggestion:
         "Ghep them don rau cu Da Lat -> TP.HCM 850kg de tang load factor len 91%",
     });
+  }),
+);
+
+apiRouter.get(
+  "/shipments/:shipmentId/matches",
+  requireAuth,
+  requireRole("CARRIER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const shipment = await prisma.shipment.findUnique({
+      where: { id: req.params.shipmentId },
+      include: { owner: true },
+    });
+    if (!shipment) throw new HttpError(404, "Shipment not found");
+    if (shipment.ownerId !== req.user!.id && req.user!.role !== "ADMIN") {
+      throw new HttpError(403, "Bạn không có quyền xem yêu cầu của đơn hàng này");
+    }
+
+    const trucks = await prisma.truck.findMany({
+      where: { active: true },
+      include: { owner: true },
+    });
+
+    const matches = trucks
+      .map((truck) => ({ truck, ...scoreTruck(shipment, truck) }))
+      .sort((a, b) => b.matchingScore - a.matchingScore);
+
+    const requests = await prisma.deal.findMany({
+      where: { shipmentId: shipment.id },
+      include: { truck: true, owner: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({ shipment, matches, requests });
+  }),
+);
+
+apiRouter.get(
+  "/trucks/:truckId/matches",
+  requireAuth,
+  requireRole("SHIPPER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    const truck = await prisma.truck.findUnique({
+      where: { id: req.params.truckId },
+      include: { owner: true },
+    });
+    if (!truck) throw new HttpError(404, "Truck not found");
+    if (truck.ownerId !== req.user!.id && req.user!.role !== "ADMIN") {
+      throw new HttpError(403, "Bạn không có quyền xem yêu cầu của chiếc xe này");
+    }
+
+    const shipments = await prisma.shipment.findMany({
+      where: { status: "MATCHING" },
+      include: { owner: true },
+    });
+
+    const matches = shipments
+      .map((shipment) => ({ shipment, ...scoreTruck(shipment, truck) }))
+      .sort((a, b) => b.matchingScore - a.matchingScore);
+
+    const requests = await prisma.deal.findMany({
+      where: { truckId: truck.id },
+      include: { shipment: true, owner: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({ truck, matches, requests });
   }),
 );
 
@@ -173,15 +320,44 @@ apiRouter.post(
 apiRouter.post(
   "/deals",
   requireAuth,
+  requireRole("SHIPPER", "CARRIER", "ADMIN"),
   asyncHandler(async (req, res) => {
     const data = z
       .object({
         shipmentId: z.string(),
+        truckId: z.string(),
         proposedPrice: z.number().int().positive(),
+        status: z.enum(["PROPOSED", "COUNTERED"]).optional(),
       })
       .parse(req.body);
+
+    const shipment = await prisma.shipment.findUnique({
+      where: { id: data.shipmentId },
+    });
+    if (!shipment) throw new HttpError(404, "Shipment không tồn tại");
+    if (shipment.status !== "MATCHING") {
+      throw new HttpError(400, "Chỉ có đơn hàng đang MATCHING mới có thể gửi yêu cầu.");
+    }
+
+    const truck = await prisma.truck.findUnique({
+      where: { id: data.truckId },
+    });
+    if (!truck) throw new HttpError(404, "Xe không tồn tại");
+    if (
+      truck.ownerId !== req.user!.id &&
+      shipment.ownerId !== req.user!.id &&
+      req.user!.role !== "ADMIN"
+    ) {
+      throw new HttpError(403, "Bạn chỉ có thể gửi yêu cầu từ chính xe của mình.");
+    }
+
     const deal = await prisma.deal.create({
-      data: { ...data, ownerId: req.user!.id },
+      data: {
+        ...data,
+        ownerId: req.user!.id,
+        status: data.status || "PROPOSED",
+      },
+      include: { shipment: true, truck: true, owner: true },
     });
     res.status(201).json(deal);
   }),
@@ -213,8 +389,8 @@ apiRouter.get(
 /**
  * GET /deals
  * Lấy danh sách deal liên quan đến user hiện tại
- * - Nếu là SHIPPER: Xem các deal đánh vào các Shipment do mình sở hữu
- * - Nếu là CARRIER: Xem các deal do chính mình tạo ra (chào giá cho các xe của mình)
+ * - Nếu là SHIPPER: Xem các deal do chính mình tạo ra (Chủ xe gửi yêu cầu lên đơn hàng)
+ * - Nếu là CARRIER: Xem các deal đánh vào các Shipment do mình sở hữu (Chủ hàng nhận yêu cầu)
  */
 apiRouter.get(
   "/deals",
@@ -226,7 +402,19 @@ apiRouter.get(
     let deals;
 
     if (userRole === "SHIPPER") {
-      // Tìm các deal thuộc về đơn hàng của Shipper này
+      // Tìm các deal do chính Shipper (chủ nhà xe) tạo ra
+      deals = await prisma.deal.findMany({
+        where: {
+          ownerId: userId,
+        },
+        include: {
+          shipment: true,
+          truck: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    } else if (userRole === "CARRIER") {
+      // Tìm các deal thuộc về đơn hàng của Carrier (chủ hàng) này
       deals = await prisma.deal.findMany({
         where: {
           shipment: {
@@ -235,25 +423,15 @@ apiRouter.get(
         },
         include: {
           shipment: true,
-          owner: { select: { id: true, name: true } }, // Thông tin bên Carrier chào giá
-        },
-        orderBy: { createdAt: "desc" },
-      });
-    } else if (userRole === "CARRIER") {
-      // Tìm các deal do chính Carrier này gửi đi
-      deals = await prisma.deal.findMany({
-        where: {
-          ownerId: userId,
-        },
-        include: {
-          shipment: true,
+          truck: true,
+          owner: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
       });
     } else {
       // Nếu là ADMIN thì trả về toàn bộ
       deals = await prisma.deal.findMany({
-        include: { shipment: true, owner: true },
+        include: { shipment: true, owner: true, truck: true },
         orderBy: { createdAt: "desc" },
       });
     }
@@ -277,14 +455,34 @@ apiRouter.patch(
 
     const currentDeal = await prisma.deal.findUnique({
       where: { id },
-      include: { shipment: true },
+      include: {
+        shipment: true,
+        truck: true,
+      },
     });
 
     if (!currentDeal) throw new HttpError(404, "Deal không tồn tại");
 
-    // Nếu trạng thái chuyển thành ACCEPTED -> Kích hoạt ACID Transaction chốt đơn xe
+    const isDealOwner = currentDeal.ownerId === req.user!.id;
+    const isShipmentOwner = currentDeal.shipment.ownerId === req.user!.id;
+    const isTruckOwner = currentDeal.truck?.ownerId === req.user!.id;
+    const isAdmin = req.user!.role === "ADMIN";
+
+    if (!isDealOwner && !isShipmentOwner && !isTruckOwner && !isAdmin) {
+      throw new HttpError(403, "Bạn không có quyền cập nhật deal này");
+    }
+
+    if (data.status === "ACCEPTED" || data.status === "REJECTED") {
+      if (!isShipmentOwner && !isTruckOwner && !isAdmin) {
+        throw new HttpError(
+          403,
+          "Chỉ chủ hàng (Carrier) hoặc Admin mới được duyệt/từ chối yêu cầu này",
+        );
+      }
+    }
+
     if (data.status === "ACCEPTED") {
-      const truckId = req.body.truckId;
+      const truckId = currentDeal.truckId || req.body.truckId;
       if (!truckId) {
         throw new HttpError(
           400,
@@ -293,7 +491,6 @@ apiRouter.patch(
       }
 
       const updatedData = await prisma.$transaction(async (tx) => {
-        // a. Cập nhật trạng thái Deal hiện tại thành ACCEPTED
         const deal = await tx.deal.update({
           where: { id },
           data: {
@@ -302,15 +499,13 @@ apiRouter.patch(
           },
         });
 
-        // b. Cập nhật trạng thái Shipment sang BOOKED
         await tx.shipment.update({
           where: { id: currentDeal.shipmentId },
           data: {
-            status: "BOOKED" as any,
+            status: "NEGOTIATING",
           },
         });
 
-        // c. Trừ tải trọng còn lại (remainingKg) của Truck được chọn
         const truck = await tx.truck.findUnique({ where: { id: truckId } });
         if (!truck) throw new HttpError(404, "Xe không tồn tại");
         if (truck.remainingKg < currentDeal.shipment.weightKg) {
@@ -329,7 +524,6 @@ apiRouter.patch(
           },
         });
 
-        // d. Tự động REJECT tất cả các deal khác của cùng Shipment này
         await tx.deal.updateMany({
           where: {
             shipmentId: currentDeal.shipmentId,
@@ -347,7 +541,6 @@ apiRouter.patch(
       return res.json(updatedData);
     }
 
-    // Nếu là các trạng thái bình thường khác (COUNTERED, REJECTED...)
     const updatedDeal = await prisma.deal.update({
       where: { id },
       data: data as any,
@@ -363,7 +556,7 @@ apiRouter.patch(
 
 /**
  * PATCH /shipments/:id
- * Cập nhật thông tin/trạng thái đơn hàng (Dành cho Shipper sở hữu đơn hoặc Admin)
+ * Cập nhật thông tin/trạng thái đơn hàng (Dành cho CARRIER sở hữu đơn hoặc Admin)
  */
 const updateShipmentSchema = shipmentSchema.partial().extend({
   status: z
@@ -399,7 +592,7 @@ apiRouter.patch(
 
 /**
  * PATCH /trucks/:id
- * Cập nhật trạng thái xe, tọa độ thực tế, tải trọng (Dành cho Carrier sở hữu xe hoặc Admin)
+ * Cập nhật trạng thái xe, tọa độ thực tế, tải trọng (Dành cho SHIPPER sở hữu xe hoặc Admin)
  */
 const updateTruckSchema = truckSchema.partial().extend({
   active: z.boolean().optional(),

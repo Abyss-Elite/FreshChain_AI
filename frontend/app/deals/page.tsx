@@ -99,7 +99,7 @@ export default function DealsPage() {
           </h1>
           <p className="mt-2 text-slate-600">
             Quản lý và xét duyệt các giao dịch thương lượng giá giữa Chủ hàng
-            (Shipper) và Nhà xe (Carrier).
+            (Carrier) và Nhà xe (Shipper).
           </p>
         </div>
         <Button

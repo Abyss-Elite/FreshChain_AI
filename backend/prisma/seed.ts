@@ -36,7 +36,7 @@ async function main() {
     const refrigerated = i % 4 !== 0;
     await prisma.truck.create({
       data: {
-        ownerId: carrier.id,
+        ownerId: shipper.id,
         type: refrigerated ? "Xe lanh 5 tan" : "Xe tai thung kin",
         plateNumber: `51C-${(78000 + i).toString()}`,
         maxCapacityKg: 3500 + (i % 5) * 900,
@@ -59,7 +59,7 @@ async function main() {
     const item = cargo[i % cargo.length];
     await prisma.shipment.create({
       data: {
-        ownerId: shipper.id,
+        ownerId: carrier.id,
         cargoType: item.cargoType,
         category: item.category,
         weightKg: 450 + (i % 8) * 420,

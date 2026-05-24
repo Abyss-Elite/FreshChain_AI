@@ -82,6 +82,9 @@ export const dealsApi = {
 
 export const matchingApi = {
   getContext: () => apiCall("/api/matching-context"),
+  getShipmentDetail: (shipmentId: string) =>
+    apiCall(`/api/shipments/${shipmentId}/matches`),
+  getTruckDetail: (truckId: string) => apiCall(`/api/trucks/${truckId}/matches`),
 };
 
 // Aggregation

@@ -9,17 +9,25 @@ export const Sheet = DialogPrimitive.Root;
 export const SheetTrigger = DialogPrimitive.Trigger;
 export const SheetClose = DialogPrimitive.Close;
 
+interface SheetContentProps extends React.ComponentProps<typeof DialogPrimitive.Content> {
+  side?: "left" | "right";
+}
+
 export function SheetContent({
   className,
   children,
+  side = "right",
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+}: SheetContentProps) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-dvh w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-xl outline-none data-[state=open]:animate-in data-[state=open]:slide-in-from-right",
+          "fixed top-0 z-50 flex h-dvh w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-xl outline-none data-[state=open]:animate-in",
+          side === "left"
+            ? "left-0 border-r border-l-0 data-[state=open]:slide-in-from-left"
+            : "right-0 border-l data-[state=open]:slide-in-from-right",
           className,
         )}
         {...props}

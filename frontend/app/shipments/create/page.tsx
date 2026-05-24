@@ -63,29 +63,66 @@ export default function CreateShipmentPage() {
       return;
     }
 
+    // const payload = {
+    //   cargoType: formData.cargoType.trim(),
+    //   category: formData.category.trim() || "Hàng tổng hợp",
+    //   weightKg: Number(formData.weightKg),
+    //   requiredTempMin: Number(formData.requiredTempMin),
+    //   requiredTempMax: Number(formData.requiredTempMax),
+    //   pickup: formData.pickup,
+    //   dropoff: formData.dropoff,
+    //   pickupLat: 11.94,
+    //   pickupLng: 108.45,
+    //   dropoffLat: 10.82,
+    //   dropoffLng: 106.63,
+    //   deliveryTime: formData.deliveryTime
+    //     ? new Date(formData.deliveryTime).toISOString()
+    //     : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    //   proposedPrice: Number(formData.proposedPrice),
+    //   notes: formData.notes.trim() || undefined,
+    //   fragile: formData.fragile,
+    //   strongSmell: formData.strongSmell,
+    //   frozenRequired: formData.frozenRequired,
+    //   specialTemperature: true,
+    //   allowCombine: formData.allowCombine,
+    // };
     const payload = {
       cargoType: formData.cargoType.trim(),
       category: formData.category.trim() || "Hàng tổng hợp",
+
       weightKg: Number(formData.weightKg),
       requiredTempMin: Number(formData.requiredTempMin),
       requiredTempMax: Number(formData.requiredTempMax),
+
       pickup: formData.pickup,
       dropoff: formData.dropoff,
+
       pickupLat: 11.94,
       pickupLng: 108.45,
       dropoffLat: 10.82,
       dropoffLng: 106.63,
+
       deliveryTime: formData.deliveryTime
         ? new Date(formData.deliveryTime).toISOString()
         : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+
       proposedPrice: Number(formData.proposedPrice),
-      notes: formData.notes.trim() || undefined,
+
+      // 🔥 FIX QUAN TRỌNG
+      notes: formData.notes.trim() || null,
+
       fragile: formData.fragile,
       strongSmell: formData.strongSmell,
       frozenRequired: formData.frozenRequired,
-      specialTemperature: true,
+
+      // 🔥 FIX LOGIC
+      specialTemperature:
+        Number(formData.requiredTempMin) !== 0 ||
+        Number(formData.requiredTempMax) !== 0,
+
       allowCombine: formData.allowCombine,
     };
+
 
     try {
       setIsSubmitting(true);
