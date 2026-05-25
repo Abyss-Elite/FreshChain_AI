@@ -125,28 +125,61 @@ export default function MatchingPage() {
     shipmentId: string,
     truckId: string,
     status: "PROPOSED" | "COUNTERED",
-    fallbackPrice?: number,
+    shipmentProposedPrice?: number,
   ) => {
-    const key = priceKey(shipmentId, truckId);
-    const priceValue = Number(priceInput[key] || fallbackPrice);
+    const inputKey = priceKey(shipmentId, truckId);
 
-    if (!priceValue || priceValue <= 0) {
-      toast.error("Vui lòng nhập giá đề xuất hợp lệ.");
-      return;
+    const requestKey = `request-${shipmentId}-${truckId}`;
+
+    let priceValue: number;
+
+    // =========================
+    // QUICK MATCH
+    // =========================
+    if (status === "PROPOSED") {
+      priceValue = Number(shipmentProposedPrice);
+
+      if (!priceValue || priceValue <= 0) {
+        toast.error("Không tìm thấy giá gốc của chủ hàng.");
+        return;
+      }
     }
 
-    const requestKey = `send-${shipmentId}-${truckId}-${status}`;
+    // =========================
+    // NEGOTIATION
+    // =========================
+    else {
+      priceValue = Number(priceInput[inputKey]);
+
+      if (!priceValue || priceValue <= 0) {
+        toast.error("Vui lòng nhập giá muốn thương lượng.");
+        return;
+      }
+    }
+
     setBusyId(requestKey);
+
     try {
-      // 💡 CẬP NHẬT: Truyền thêm tham số truckId vào vị trí thứ 2 theo đúng hàm API mới sửa
       await negotiationApi.createDeal(shipmentId, truckId, priceValue);
-      
+
       toast.success(
         status === "COUNTERED"
-          ? "Đã gửi yêu cầu thương lượng."
-          : "Đã gửi yêu cầu ghép hàng.",
+          ? "Đã gửi phản hồi giá thành công!"
+          : "Đã chốt ghép nhanh thành công!",
       );
-      if (selectedId) await loadDetail(selectedId);
+
+      // clear input cũ
+      setPriceInput((prev) => {
+        const next = { ...prev };
+        delete next[inputKey];
+        return next;
+      });
+
+      // auto refresh
+      if (selectedId) {
+        await loadDetail(selectedId);
+      }
+
       await loadContext();
     } catch (error: any) {
       toast.error(error.message || "Không gửi được yêu cầu.");
@@ -155,48 +188,60 @@ export default function MatchingPage() {
     }
   };
 
-  // --- ĐOẠN CODE ĐÃ ĐƯỢC CẬP NHẬT CHUẨN THEO NGHIỆP VỤ ĐÀM PHÁN ---
   const updateDealStatus = async (
     dealId: string,
     status: DealStatus,
     counterPrice?: number,
   ) => {
-    setBusyId(dealId);
+    const requestKey = `deal-${dealId}-${status}`;
+
+    setBusyId(requestKey);
+
     try {
-      // 1. Lấy thông tin request hiện tại từ danh sách để lấy roundId (Multi-round)
       const currentRequest = detail?.requests?.find(
         (r: any) => r.id === dealId,
       );
+
       const roundId =
         currentRequest?.currentRoundId || currentRequest?.latestRound?.id;
 
-      // 2. Phân luồng xử lý API chính xác theo cấu trúc Price Negotiation mới
       if (status === "ACCEPTED") {
-        if (!roundId)
-          throw new Error(
-            "Không tìm thấy mã lượt đàm phán (roundId) để chấp nhận giá.",
-          );
+        if (!roundId) {
+          throw new Error("Không tìm thấy roundId.");
+        }
+
         await negotiationApi.acceptPrice(dealId, roundId);
-        toast.success("Đã chấp nhận mức giá thỏa thuận thành công!");
+
+        toast.success("Đã chốt giá thành công!");
       } else if (status === "COUNTERED") {
-        if (!roundId)
-          throw new Error(
-            "Không tìm thấy mã lượt đàm phán (roundId) để phản hồi.",
-          );
-        if (!counterPrice || counterPrice <= 0)
+        if (!roundId) {
+          throw new Error("Không tìm thấy roundId.");
+        }
+
+        if (!counterPrice || counterPrice <= 0) {
           throw new Error("Vui lòng nhập giá muốn thương lượng.");
+        }
+
         await negotiationApi.respondToRound(dealId, roundId, counterPrice);
-        toast.success("Đã gửi mức giá đề xuất mới thành công!");
+
+        toast.success("Đã gửi phản hồi giá thành công!");
       } else if (status === "REJECTED") {
         await negotiationApi.rejectDeal(dealId);
-        toast.success("Đã từ chối lượt đàm phán này.");
+
+        toast.success("Đã từ chối đàm phán.");
       }
 
-      // 3. Tải lại dữ liệu sau khi cập nhật thành công
-      if (selectedId) await loadDetail(selectedId);
+      // clear counter input
+      setPriceInput({});
+
+      // auto refresh
+      if (selectedId) {
+        await loadDetail(selectedId);
+      }
+
       await loadContext();
     } catch (error: any) {
-      toast.error(error.message || "Không cập nhật được trạng thái đàm phán.");
+      toast.error(error.message || "Không cập nhật được trạng thái.");
     } finally {
       setBusyId(null);
     }
@@ -521,7 +566,7 @@ function RequestsSection({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="text-xs text-blue-600 hover:text-blue-700 h-9"
+                        disabled={busyId === `deal-${request.id}-COUNTERED`}
                         onClick={() =>
                           onUpdate(
                             request.id,
@@ -529,9 +574,12 @@ function RequestsSection({
                             Number(localCounterPrice[request.id]),
                           )
                         }
-                        disabled={busyId === request.id}
                       >
-                        <MessageSquare size={14} className="mr-1" />
+                        {busyId === `deal-${request.id}-COUNTERED` ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <MessageSquare size={14} className="mr-1" />
+                        )}
                         Gửi phản hồi giá
                       </Button>
                     </div>
@@ -542,7 +590,7 @@ function RequestsSection({
                         variant="outline"
                         className="text-red-500 hover:text-red-600"
                         onClick={() => onUpdate(request.id, "REJECTED")}
-                        disabled={busyId === request.id}
+                        disabled={busyId === `deal-${request.id}-REJECTED`}
                       >
                         <XCircle size={14} className="mr-1" /> Từ chối hẳn
                       </Button>
@@ -550,7 +598,7 @@ function RequestsSection({
                         size="sm"
                         className="bg-emerald-600 text-white hover:bg-emerald-700"
                         onClick={() => onUpdate(request.id, "ACCEPTED")}
-                        disabled={busyId === request.id}
+                        disabled={busyId === `deal-${request.id}-ACCEPTED`}
                       >
                         <CheckCircle size={14} className="mr-1" /> Chấp nhận giá
                         này
@@ -729,7 +777,14 @@ export function MatchesSection({
                         sendMatchRequest(shipment.id, truck.id, "COUNTERED")
                       }
                     >
-                      <MessageSquare size={13} className="mr-1 text-blue-500" />{" "}
+                      {busyId === requestKey ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <MessageSquare
+                          size={13}
+                          className="mr-1 text-blue-500"
+                        />
+                      )}
                       Đàm phán giá
                     </Button>
                     <Button
@@ -747,7 +802,12 @@ export function MatchesSection({
                         )
                       }
                     >
-                      <CheckCircle size={13} className="mr-1" /> Chốt ghép nhanh
+                      {busyId === requestKey ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <CheckCircle size={13} className="mr-1" />
+                      )}
+                      Chốt ghép nhanh
                     </Button>
                   </div>
                 </div>

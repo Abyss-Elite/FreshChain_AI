@@ -475,22 +475,59 @@ apiRouter.post(
   }),
 );
 
-// ⚠️ DEPRECATED: Use POST /api/negotiation/deals instead
-// This endpoint now redirects to the new multi-round negotiation system
+//
+// ⚠️ DEPRECATED
+// Use: POST /api/negotiation/deals
+//
+// New system supports:
+// - Multi-round negotiation
+// - Quick match using shipment.proposedPrice
+// - Full negotiation history
+// - Counter offers
+//
+
 apiRouter.post(
   "/deals",
   requireAuth,
   requireRole("SHIPPER", "CARRIER", "ADMIN"),
-  asyncHandler(async (req, res) => {
-    res.status(301).json({
-      error: "Endpoint deprecated. Use POST /api/negotiation/deals instead.",
-      newEndpoint: "/api/negotiation/deals",
-      example: {
-        shipmentId: "...",
-        truckId: "...",
-        proposedPrice: 500000,
-        message: "Optional message",
+  asyncHandler(async (_req, res) => {
+    return res.status(410).json({
+      success: false,
+
+      error: "DEPRECATED_ENDPOINT",
+
+      message:
+        "This endpoint has been removed. Please use POST /api/negotiation/deals instead.",
+
+      migration: {
+        oldEndpoint: "POST /api/deals",
+        newEndpoint: "POST /api/negotiation/deals",
       },
+
+      supportedFlows: {
+        quickMatch: {
+          description:
+            "Automatically use shipment.proposedPrice as Round 1 price",
+
+          requestBody: {
+            shipmentId: "shipment_id",
+            truckId: "truck_id",
+          },
+        },
+
+        customNegotiation: {
+          description: "Start negotiation with custom proposed price",
+
+          requestBody: {
+            shipmentId: "shipment_id",
+            truckId: "truck_id",
+            proposedPrice: 500000,
+            message: "Optional negotiation message",
+          },
+        },
+      },
+
+      note: "The new negotiation system supports unlimited negotiation rounds and full price history tracking.",
     });
   }),
 );
@@ -586,21 +623,61 @@ const updateDealSchema = z.object({
   status: z.enum(["PROPOSED", "COUNTERED", "ACCEPTED", "REJECTED"]),
 });
 
-// ⚠️ DEPRECATED: Use negotiation endpoints instead
-// For accepting a deal: POST /api/negotiation/deals/:dealId/rounds/:roundId/accept
-// For countering: POST /api/negotiation/deals/:dealId/rounds/:roundId/respond
+//
+// ⚠️ DEPRECATED
+//
+// Old single-round deal update endpoint
+//
+// Replaced by:
+// - POST /api/negotiation/deals/:dealId/rounds/:roundId/respond
+// - POST /api/negotiation/deals/:dealId/rounds/:roundId/accept
+//
+
 apiRouter.patch(
   "/deals/:id",
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.status(301).json({
-      error: "Endpoint deprecated. Use negotiation endpoints instead.",
-      newEndpoints: {
-        accept: "POST /api/negotiation/deals/:dealId/rounds/:roundId/accept",
-        counter: "POST /api/negotiation/deals/:dealId/rounds/:roundId/respond",
-        info: "GET /api/negotiation/deals/:dealId",
+    const { id } = req.params;
+
+    return res.status(410).json({
+      success: false,
+
+      error: "DEPRECATED_ENDPOINT",
+
+      message:
+        "This endpoint has been removed. Use negotiation round endpoints instead.",
+
+      deprecatedEndpoint: `PATCH /api/deals/${id}`,
+
+      replacementEndpoints: {
+        acceptPrice: {
+          method: "POST",
+          endpoint: "/api/negotiation/deals/:dealId/rounds/:roundId/accept",
+
+          description: "Accept the proposed price of a negotiation round",
+        },
+
+        counterOffer: {
+          method: "POST",
+          endpoint: "/api/negotiation/deals/:dealId/rounds/:roundId/respond",
+
+          requestBody: {
+            counterPrice: 450000,
+            message: "Optional counter message",
+          },
+
+          description: "Respond with a counter-offer to continue negotiation",
+        },
+
+        negotiationInfo: {
+          method: "GET",
+          endpoint: "/api/negotiation/deals/:dealId",
+
+          description: "Get negotiation details and full round history",
+        },
       },
-      note: "The new system supports unlimited negotiation rounds with full price history tracking.",
+
+      note: "The new negotiation system supports unlimited rounds, counter offers, acceptance tracking, and negotiation history.",
     });
   }),
 );

@@ -4,8 +4,16 @@ import { NegotiationRoundStatus } from "@prisma/client";
 export interface CreateDealRequest {
   shipmentId: string;
   truckId: string;
-  initiatorPrice: number;
+
+  /**
+   * Optional:
+   * - Nếu có -> dùng giá custom
+   * - Nếu không -> fallback shipment.proposedPrice
+   */
+  initiatorPrice?: number;
+
   initiatorRole: "SHIPPER" | "CARRIER";
+
   message?: string;
 }
 
@@ -16,42 +24,119 @@ export interface ProposeCounterRequest {
   message?: string;
 }
 
-/**
- * Create a new deal with initial price negotiation
- */
 export async function createDealWithNegotiation(
   shipmentId: string,
   truckId: string,
-  initiatorPrice: number,
+  initiatorPrice: number | undefined,
   initiatorRole: "SHIPPER" | "CARRIER",
   ownerId: string,
-  message?: string
+  message?: string,
 ) {
-  // Create the deal
-  const deal = await prisma.deal.create({
-    data: {
-      shipmentId,
-      truckId,
-      ownerId,
+  // Get shipment price for quick match fallback
+  const shipment = await prisma.shipment.findUnique({
+    where: {
+      id: shipmentId,
+    },
+
+    select: {
+      id: true,
+      proposedPrice: true,
+      status: true,
     },
   });
 
-  // Create first negotiation round
-  const firstRound = await prisma.negotiationRound.create({
-    data: {
-      dealId: deal.id,
-      roundNumber: 1,
-      proposedPrice: initiatorPrice,
-      proposedBy: initiatorRole,
-      message: message,
-      status: NegotiationRoundStatus.WAITING_FOR_COUNTER,
-    },
-  });
+  if (!shipment) {
+    throw new Error("Shipment not found");
+  }
 
-  return {
-    deal,
-    firstRound,
-  };
+  /**
+   * Quick Match:
+   * Nếu client không truyền giá
+   * -> tự động lấy shipment.proposedPrice
+   */
+  const initialPrice = initiatorPrice ?? shipment.proposedPrice;
+
+  if (!initialPrice || initialPrice <= 0) {
+    throw new Error("Invalid initial negotiation price");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    /**
+     * Prevent duplicate active negotiations
+     */
+    const existingDeal = await tx.deal.findFirst({
+      where: {
+        shipmentId,
+        truckId,
+        finalPrice: null,
+      },
+    });
+
+    if (existingDeal) {
+      throw new Error(
+        "An active negotiation already exists for this shipment and truck",
+      );
+    }
+
+    /**
+     * Create deal
+     */
+    const deal = await tx.deal.create({
+      data: {
+        shipmentId,
+        truckId,
+        ownerId,
+      },
+    });
+
+    /**
+     * Create Round 1
+     */
+    const firstRound = await tx.negotiationRound.create({
+      data: {
+        dealId: deal.id,
+
+        roundNumber: 1,
+
+        proposedPrice: initialPrice,
+
+        proposedBy: initiatorRole,
+
+        message:
+          message ||
+          (initiatorPrice == null
+            ? "Quick match using shipment proposed price"
+            : "Custom proposed price"),
+
+        status: NegotiationRoundStatus.WAITING_FOR_COUNTER,
+      },
+    });
+
+    /**
+     * Update shipment status
+     * để frontend auto re-render
+     */
+    await tx.shipment.update({
+      where: {
+        id: shipmentId,
+      },
+
+      data: {
+        status: "NEGOTIATING",
+      },
+    });
+
+    return {
+      deal,
+      firstRound,
+
+      /**
+       * FE dùng để hiển thị UI phù hợp
+       */
+      priceSource:
+        initiatorPrice == null ? "shipment_proposed_price" : "custom_price",
+    };
+  });
 }
 
 /**
@@ -78,7 +163,7 @@ export async function respondToNegotiation(
   roundId: string,
   counterPrice: number,
   respondentRole: "SHIPPER" | "CARRIER",
-  message?: string
+  message?: string,
 ) {
   const round = await prisma.negotiationRound.findUnique({
     where: { id: roundId },
@@ -145,7 +230,7 @@ export async function respondToNegotiation(
  */
 export async function acceptProposedPrice(
   roundId: string,
-  acceptorRole: "SHIPPER" | "CARRIER"
+  acceptorRole: "SHIPPER" | "CARRIER",
 ) {
   const round = await prisma.negotiationRound.findUnique({
     where: { id: roundId },
