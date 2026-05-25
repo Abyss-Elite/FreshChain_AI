@@ -61,12 +61,96 @@ export interface AssistantQuestion {
   required: boolean;
 }
 
+// Map tọa độ quy chuẩn đồng bộ với cấu trúc file seed hệ thống
+export const vietnamLogisticsLocations = [
+  "Hà Nội",
+  "Cao Bằng",
+  "Tuyên Quang",
+  "Điện Biên",
+  "Lai Châu",
+  "Sơn La",
+  "Lào Cai",
+  "Thái Nguyên",
+  "Lạng Sơn",
+  "Quảng Ninh",
+  "Bắc Ninh",
+  "Phú Thọ",
+  "Hải Phòng",
+  "Hưng Yên",
+  "Ninh Bình",
+  "Thanh Hóa",
+  "Nghệ An",
+  "Hà Tĩnh",
+  "Quảng Trị",
+  "Huế",
+  "Đà Nẵng",
+  "Quảng Ngãi",
+  "Gia Lai",
+  "Khánh Hòa",
+  "Đắk Lắk",
+  "Lâm Đồng",
+  "Đồng Nai",
+  "Hồ Chí Minh",
+  "Tây Ninh",
+  "Đồng Tháp",
+  "Vĩnh Long",
+  "An Giang",
+  "Cần Thơ",
+  "Cà Mau",
+] as const;
+
+// Định nghĩa kiểu dữ liệu dựa trên mảng có sẵn của bạn để đảm bảo type-safe 100%
+export type VietnamLocation = (typeof vietnamLogisticsLocations)[number];
+
+export const vietnamLogisticsCoordinates: Record<
+  VietnamLocation,
+  { lat: number; lng: number }
+> = {
+  // Miền Bắc
+  "Hà Nội": { lat: 21.0285, lng: 105.8542 },
+  "Cao Bằng": { lat: 22.6669, lng: 106.2576 },
+  "Tuyên Quang": { lat: 21.8229, lng: 105.2162 },
+  "Điện Biên": { lat: 21.3853, lng: 103.0134 },
+  "Lai Châu": { lat: 22.3908, lng: 103.4682 },
+  "Sơn La": { lat: 21.3259, lng: 103.9126 },
+  "Lào Cai": { lat: 22.4842, lng: 103.9614 },
+  "Thái Nguyên": { lat: 21.5939, lng: 105.8454 },
+  "Lạng Sơn": { lat: 21.8519, lng: 106.7592 },
+  "Quảng Ninh": { lat: 20.9497, lng: 107.0701 },
+  "Bắc Ninh": { lat: 21.1861, lng: 106.0763 },
+  "Phú Thọ": { lat: 21.3225, lng: 105.4019 },
+  "Hải Phòng": { lat: 20.8449, lng: 106.6881 },
+  "Hưng Yên": { lat: 20.6465, lng: 106.0511 },
+  "Ninh Bình": { lat: 20.2548, lng: 105.9754 },
+
+  // Miền Trung / Tây Nguyên
+  "Thanh Hóa": { lat: 19.8076, lng: 105.7753 },
+  "Nghệ An": { lat: 18.6735, lng: 105.6814 },
+  "Hà Tĩnh": { lat: 18.3392, lng: 105.9059 },
+  "Quảng Trị": { lat: 16.7424, lng: 107.1824 },
+  Huế: { lat: 16.4637, lng: 107.5909 },
+  "Đà Nẵng": { lat: 16.0471, lng: 108.2068 },
+  "Quảng Ngãi": { lat: 15.1205, lng: 108.7924 },
+  "Gia Lai": { lat: 13.9822, lng: 108.0063 },
+  "Khánh Hòa": { lat: 12.2388, lng: 109.1967 },
+  "Đắk Lắk": { lat: 12.6662, lng: 108.0382 },
+  "Lâm Đồng": { lat: 11.9404, lng: 108.4583 },
+
+  // Miền Nam / Miền Tây
+  "Đồng Nai": { lat: 10.9574, lng: 106.8427 },
+  "Hồ Chí Minh": { lat: 10.8231, lng: 106.6297 },
+  "Tây Ninh": { lat: 11.3129, lng: 106.1246 },
+  "Đồng Tháp": { lat: 10.4578, lng: 105.6424 },
+  "Vĩnh Long": { lat: 10.2524, lng: 105.9723 },
+  "An Giang": { lat: 10.3725, lng: 105.4328 },
+  "Cần Thơ": { lat: 10.0452, lng: 105.7469 },
+  "Cà Mau": { lat: 9.1769, lng: 105.1524 },
+};
+
 /**
  * Analyze order completeness based on current data
  */
-export function analyzeOrderCompleteness(
-  data: OrderData
-): CompletionAnalysis {
+export function analyzeOrderCompleteness(data: OrderData): CompletionAnalysis {
   const missingFields: string[] = [];
   let filledFields = 0;
 
@@ -106,11 +190,14 @@ export function analyzeOrderCompleteness(
  * Generate optimal follow-up question based on missing fields
  */
 export function generateNextQuestion(
-  analysis: CompletionAnalysis
+  analysis: CompletionAnalysis,
 ): AssistantQuestion | null {
   if (analysis.isComplete) {
     return null;
   }
+
+  // Chuyển mảng readonly thành mảng string thông thường cho trường options
+  const locationOptions = [...vietnamLogisticsLocations];
 
   // Priority order for questions
   const questionMap: Record<string, AssistantQuestion> = {
@@ -162,14 +249,14 @@ export function generateNextQuestion(
       question: "Địa điểm lấy hàng? (Tỉnh/TP)",
       fieldName: "pickup",
       type: "select",
-      options: ["TP.HCM", "Da Nang", "Ha Noi", "Da Lat", "Nha Trang", "Can Tho"],
+      options: locationOptions, // ĐÃ SỬA: Đưa toàn bộ danh sách 34 tỉnh thành vào giao diện
       required: true,
     },
     dropoff: {
       question: "Địa điểm giao hàng? (Tỉnh/TP)",
       fieldName: "dropoff",
       type: "select",
-      options: ["TP.HCM", "Da Nang", "Ha Noi", "Da Lat", "Nha Trang", "Can Tho"],
+      options: locationOptions, // ĐÃ SỬA: Đưa toàn bộ danh sách 34 tỉnh thành vào giao diện
       required: true,
     },
     deliveryTime: {
@@ -239,7 +326,11 @@ export function buildCompatibilityWarnings(data: OrderData) {
     );
   }
 
-  if (data.frozenRequired && data.requiredTempMax !== undefined && data.requiredTempMax > 2) {
+  if (
+    data.frozenRequired &&
+    data.requiredTempMax !== undefined &&
+    data.requiredTempMax > 2
+  ) {
     warnings.push(
       "Hàng đông lạnh cần giữ nhiệt độ dưới 2°C; nếu không có xe lạnh phù hợp sẽ dễ hư hỏng",
     );
@@ -322,17 +413,28 @@ export async function updateSessionWithResponse(
   sessionId: string,
   fieldName: string,
   value: any,
-  userMessage: string
+  userMessage: string,
 ) {
   // Build update object dynamically
   const updateData: any = {};
 
   // Handle type conversions
-  if (fieldName === "weightKg" || fieldName === "requiredTempMin" || fieldName === "requiredTempMax" || fieldName === "proposedPrice") {
+  if (
+    fieldName === "weightKg" ||
+    fieldName === "requiredTempMin" ||
+    fieldName === "requiredTempMax" ||
+    fieldName === "proposedPrice"
+  ) {
     updateData[fieldName] = parseInt(value, 10);
   } else if (fieldName === "deliveryTime") {
     updateData[fieldName] = new Date(value);
-  } else if (fieldName === "strongSmell" || fieldName === "fragile" || fieldName === "frozenRequired" || fieldName === "specialTemperature" || fieldName === "allowCombine") {
+  } else if (
+    fieldName === "strongSmell" ||
+    fieldName === "fragile" ||
+    fieldName === "frozenRequired" ||
+    fieldName === "specialTemperature" ||
+    fieldName === "allowCombine"
+  ) {
     updateData[fieldName] = value === true || value === "true";
   } else {
     updateData[fieldName] = value;
@@ -423,7 +525,7 @@ export async function updateSessionWithResponse(
  */
 export async function submitOrderFromSession(
   sessionId: string,
-  userId: string
+  userId: string,
 ) {
   const session = await prisma.orderAssistantSession.findUnique({
     where: { id: sessionId },
@@ -454,16 +556,69 @@ export async function submitOrderFromSession(
 
   if (!analysis.isComplete) {
     throw new Error(
-      `Order is incomplete. Missing: ${analysis.missingFields.join(", ")}`
+      `Order is incomplete. Missing: ${analysis.missingFields.join(", ")}`,
     );
   }
 
-  // Default values for optional fields
-  const pickupLat = session.pickupLat ?? 11.94;
-  const pickupLng = session.pickupLng ?? 108.45;
-  const dropoffLat = session.dropoffLat ?? 10.82;
-  const dropoffLng = session.dropoffLng ?? 106.63;
+  // =========================================================================
+  // 🔧 REFACTOR: CƠ CHẾ ƯU TIÊN TẠO ĐỘ - ĐỤC BUỘC THỨ TỰ CHÍNH XÁC
+  // =========================================================================
+  // Lý do: Nullish coalescing (??) có thể ưu tiên giá trị cũ trong session
+  //        nếu không kiểm tra chặt chẽ
+  //
+  // ✅ ƯU TIÊN 1: Luôn tra cứu từ vietnamLogisticsCoordinates trước
+  // ✅ ƯU TIÊN 2: Nếu map không có → dùng session custom (session.pickupLat)
+  // ✅ ƯU TIÊN 3: Nếu cả 2 không có → dùng fallback mặc định cứng
+  // =========================================================================
+
   const allowCombine = session.allowCombine ?? true;
+
+  // Chuẩn hóa tên địa điểm để đảm bảo khớp với map (xóa khoảng trắng)
+  const pickupLocation = (session.pickup?.trim() || "") as VietnamLocation;
+  const dropoffLocation = (session.dropoff?.trim() || "") as VietnamLocation;
+
+  // 📍 PICKUP COORDINATES
+  // Lấy từ map trước tiên
+  const pickupFromMap = vietnamLogisticsCoordinates[pickupLocation];
+
+  // Nếu tìm thấy trong map → dùng map (ưu tiên 1)
+  // Nếu không tìm thấy trong map → dùng session custom (ưu tiên 2)
+  // Nếu cả session custom cũng không có → dùng fallback (ưu tiên 3)
+  const pickupLat =
+    pickupFromMap?.lat !== undefined
+      ? pickupFromMap.lat
+      : session.pickupLat !== null && session.pickupLat !== undefined
+        ? session.pickupLat
+        : 16.0471; // Fallback: Đà Nẵng
+
+  const pickupLng =
+    pickupFromMap?.lng !== undefined
+      ? pickupFromMap.lng
+      : session.pickupLng !== null && session.pickupLng !== undefined
+        ? session.pickupLng
+        : 108.2068; // Fallback: Đà Nẵng
+
+  // 📍 DROPOFF COORDINATES
+  // Lấy từ map trước tiên
+  const dropoffFromMap = vietnamLogisticsCoordinates[dropoffLocation];
+
+  // Nếu tìm thấy trong map → dùng map (ưu tiên 1)
+  // Nếu không tìm thấy trong map → dùng session custom (ưu tiên 2)
+  // Nếu cả session custom cũng không có → dùng fallback (ưu tiên 3)
+  const dropoffLat =
+    dropoffFromMap?.lat !== undefined
+      ? dropoffFromMap.lat
+      : session.dropoffLat !== null && session.dropoffLat !== undefined
+        ? session.dropoffLat
+        : 10.8231; // Fallback: TP.HCM
+
+  const dropoffLng =
+    dropoffFromMap?.lng !== undefined
+      ? dropoffFromMap.lng
+      : session.dropoffLng !== null && session.dropoffLng !== undefined
+        ? session.dropoffLng
+        : 106.6297; // Fallback: TP.HCM
+  // =========================================================================
 
   // Create shipment
   const shipment = await prisma.shipment.create({

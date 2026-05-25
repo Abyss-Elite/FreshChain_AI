@@ -60,8 +60,9 @@ negotiationRouter.post(
     }
 
     // Determine initiator role based on user
+    // SỬA LỖI: Thêm dấu ! sau req.user
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: req.user!.id },
     });
 
     const initiatorRole = user?.role === "SHIPPER" ? "SHIPPER" : "CARRIER";
@@ -71,8 +72,8 @@ negotiationRouter.post(
       truckId,
       proposedPrice,
       initiatorRole,
-      req.user.id,
-      message
+      req.user!.id, // SỬA LỖI: Thêm dấu ! sau req.user
+      message,
     );
 
     res.json({
@@ -83,7 +84,7 @@ negotiationRouter.post(
       firstRound,
       message: `Negotiation started. ${initiatorRole} proposes ${proposedPrice} VND`,
     });
-  })
+  }),
 );
 
 /**
@@ -107,7 +108,7 @@ negotiationRouter.get(
       deal,
       summary,
     });
-  })
+  }),
 );
 
 /**
@@ -130,8 +131,9 @@ negotiationRouter.post(
     }
 
     // Determine respondent role
+    // SỬA LỖI: Thêm dấu ! sau req.user
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: req.user!.id },
     });
 
     const respondentRole = user?.role === "SHIPPER" ? "SHIPPER" : "CARRIER";
@@ -140,7 +142,7 @@ negotiationRouter.post(
       roundId,
       counterPrice,
       respondentRole,
-      message
+      message,
     );
 
     if (result.dealAccepted) {
@@ -161,7 +163,7 @@ negotiationRouter.post(
         nextRound: result.nextRound,
       });
     }
-  })
+  }),
 );
 
 /**
@@ -181,8 +183,9 @@ negotiationRouter.post(
       throw new HttpError(404, "Deal not found");
     }
 
+    // SỬA LỖI: Thêm dấu ! sau req.user
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: req.user!.id },
     });
 
     const acceptorRole = user?.role === "SHIPPER" ? "SHIPPER" : "CARRIER";
@@ -195,7 +198,7 @@ negotiationRouter.post(
       deal: result.deal,
       finalPrice: result.deal.finalPrice,
     });
-  })
+  }),
 );
 
 /**
@@ -216,7 +219,7 @@ negotiationRouter.get(
       activeDeals: deals.filter((d) => !d.finalPrice).length,
       completedDeals: deals.filter((d) => d.finalPrice).length,
     });
-  })
+  }),
 );
 
 /**
@@ -236,7 +239,7 @@ negotiationRouter.post(
       message: "Negotiation rejected",
       dealId,
     });
-  })
+  }),
 );
 
 /**
@@ -251,5 +254,5 @@ negotiationRouter.get(
     const summary = await getNegotiationSummary(dealId);
 
     res.json(summary);
-  })
+  }),
 );

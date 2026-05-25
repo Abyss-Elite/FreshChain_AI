@@ -31,7 +31,8 @@ assistantRouter.post(
   "/sessions",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const session = await getOrCreateAssistantSession(req.user.id);
+    // SỬA LỖI: Thêm dấu ! sau req.user để khẳng định không bị undefined
+    const session = await getOrCreateAssistantSession(req.user!.id);
 
     // Get next question if not complete
     const analysis = analyzeOrderCompleteness({
@@ -56,7 +57,7 @@ assistantRouter.post(
       nextQuestion,
       summary: analysis.summary,
     });
-  })
+  }),
 );
 
 /**
@@ -74,7 +75,8 @@ assistantRouter.post(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    // SỬA LỖI: Thêm dấu ! sau req.user
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -83,7 +85,7 @@ assistantRouter.post(
       sessionId,
       fieldName || "",
       value,
-      message || value
+      message || value,
     );
 
     res.json({
@@ -94,7 +96,7 @@ assistantRouter.post(
       completenessScore: result.session.completenessScore,
       isComplete: result.analysis.isComplete,
     });
-  })
+  }),
 );
 
 /**
@@ -110,7 +112,8 @@ assistantRouter.get(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    // SỬA LỖI: Thêm dấu ! sau req.user
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -120,7 +123,7 @@ assistantRouter.get(
       sessionId,
       ...reviewData,
     });
-  })
+  }),
 );
 
 /**
@@ -136,12 +139,14 @@ assistantRouter.post(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    // SỬA LỖI: Thêm dấu ! sau req.user
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
     try {
-      const shipment = await submitOrderFromSession(sessionId, req.user.id);
+      // SỬA LỖI: Thêm dấu ! sau req.user
+      const shipment = await submitOrderFromSession(sessionId, req.user!.id);
 
       res.json({
         success: true,
@@ -152,7 +157,7 @@ assistantRouter.post(
     } catch (error: any) {
       throw new HttpError(400, error.message);
     }
-  })
+  }),
 );
 
 /**
@@ -173,7 +178,8 @@ assistantRouter.get(
       },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    // SỬA LỖI: Thêm dấu ! sau req.user
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -181,7 +187,7 @@ assistantRouter.get(
       sessionId,
       conversation: session.conversationHistory,
     });
-  })
+  }),
 );
 
 /**
@@ -197,7 +203,8 @@ assistantRouter.post(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    // SỬA LỖI: Thêm dấu ! sau req.user
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -210,11 +217,12 @@ assistantRouter.post(
     });
 
     // Create new session
-    const newSession = await getOrCreateAssistantSession(req.user.id);
+    // SỬA LỖI: Thêm dấu ! sau req.user
+    const newSession = await getOrCreateAssistantSession(req.user!.id);
 
     res.json({
       newSessionId: newSession.id,
       message: "New session started",
     });
-  })
+  }),
 );
