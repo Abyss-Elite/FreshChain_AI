@@ -3,10 +3,23 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { Checkbox } from "./ui/checkbox";
 import { Progress } from "./ui/progress";
+import { AlertCircle, CheckCircle2, Edit2, Send } from "lucide-react";
 
 interface AssistantQuestion {
   question: string;
@@ -31,13 +44,22 @@ interface Message {
   content: string;
 }
 
+interface ReviewData {
+  summary: Record<string, any>;
+  completenessScore: number;
+  conversationHistory: any[];
+}
+
 export function AIOrderAssistant() {
   const [session, setSession] = useState<AssistantSession | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentValue, setCurrentValue] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [reviewData, setReviewData] = useState<any>(null);
+  const [showReview, setShowReview] = useState(false);
+  const [reviewData, setReviewData] = useState<ReviewData | null>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Initialize session on mount
   useEffect(() => {
@@ -81,10 +103,7 @@ export function AIOrderAssistant() {
       setLoading(true);
 
       // Add user message
-      setMessages((prev) => [
-        ...prev,
-        { role: "user", content: currentValue },
-      ]);
+      setMessages((prev) => [...prev, { role: "user", content: currentValue }]);
 
       // Send response to assistant
       const response = await fetch(
@@ -100,7 +119,7 @@ export function AIOrderAssistant() {
             value: currentValue,
             message: currentValue,
           }),
-        }
+        },
       );
 
       const data = await response.json();
@@ -131,7 +150,7 @@ export function AIOrderAssistant() {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
-          }
+          },
         );
         const reviewData = await reviewResponse.json();
         setReviewData(reviewData);
@@ -158,7 +177,7 @@ export function AIOrderAssistant() {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
-        }
+        },
       );
 
       const data = await response.json();
@@ -346,7 +365,7 @@ export function AIOrderAssistant() {
                   <span className="font-medium">Thời gian giao:</span>
                   <p className="text-gray-600">
                     {new Date(reviewData.summary.deliveryTime).toLocaleString(
-                      "vi-VN"
+                      "vi-VN",
                     )}
                   </p>
                 </div>

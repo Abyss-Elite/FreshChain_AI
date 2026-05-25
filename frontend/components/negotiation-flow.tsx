@@ -3,6 +3,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { TrendingDown, TrendingUp, CheckCircle2, XCircle } from "lucide-react";
 
 interface NegotiationRound {
   id: string;
@@ -22,7 +23,9 @@ interface Deal {
   id: string;
   shipmentId: string;
   truckId: string;
+  ownerId: string;
   finalPrice?: number;
+  status: string;
   negotiationRounds: NegotiationRound[];
 }
 
@@ -50,9 +53,13 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
   const [counterPrice, setCounterPrice] = useState("");
   const [counterMessage, setCounterMessage] = useState("");
   const [completed, setCompleted] = useState(false);
+  const [priceChange, setPriceChange] = useState(0);
 
   useEffect(() => {
     loadDealData();
+    // Auto-refresh every 5 seconds to get latest updates
+    const interval = setInterval(loadDealData, 5000);
+    return () => clearInterval(interval);
   }, [dealId]);
 
   const loadDealData = async () => {
@@ -67,6 +74,16 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
       const data = await response.json();
       setDeal(data.deal);
       setSummary(data.summary);
+
+      // Calculate price change percentage
+      if (data.summary) {
+        const change = (
+          ((data.summary.currentProposedPrice - data.summary.initialPrice) /
+            data.summary.initialPrice) *
+          100
+        ).toFixed(2);
+        setPriceChange(parseFloat(change));
+      }
 
       if (data.deal.finalPrice) {
         setCompleted(true);
@@ -83,7 +100,8 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
 
     try {
       setLoading(true);
-      const latestRound = deal.negotiationRounds[deal.negotiationRounds.length - 1];
+      const latestRound =
+        deal.negotiationRounds[deal.negotiationRounds.length - 1];
 
       const response = await fetch(
         `/api/negotiation/deals/${dealId}/rounds/${latestRound.id}/respond`,
@@ -104,7 +122,9 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
 
       if (data.dealAccepted) {
         setCompleted(true);
-        alert(`✅ Thương lượng thành công! Giá chốt: ${data.finalPrice}`);
+        alert(
+          `✅ Thương lượng thành công! Giá chốt: ${data.finalPrice?.toLocaleString()} đ`
+        );
       }
 
       // Reload data
@@ -113,6 +133,7 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
       setCounterMessage("");
     } catch (error) {
       console.error("Failed to respond:", error);
+      alert("Lỗi khi phản hồi giá");
     } finally {
       setLoading(false);
     }
@@ -123,7 +144,8 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
 
     try {
       setLoading(true);
-      const latestRound = deal.negotiationRounds[deal.negotiationRounds.length - 1];
+      const latestRound =
+        deal.negotiationRounds[deal.negotiationRounds.length - 1];
 
       const response = await fetch(
         `/api/negotiation/deals/${dealId}/rounds/${latestRound.id}/accept`,
@@ -139,15 +161,14 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
 
       if (data.success) {
         setCompleted(true);
-        alert(
-          `✅ ${data.message}`
-        );
+        alert(`✅ Đã chấp nhận giá!`);
       }
 
       // Reload data
       await loadDealData();
     } catch (error) {
       console.error("Failed to accept:", error);
+      alert("Lỗi khi chấp nhận giá");
     } finally {
       setLoading(false);
     }
@@ -178,131 +199,170 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
       }
     } catch (error) {
       console.error("Failed to reject:", error);
+      alert("Lỗi khi từ chối");
     } finally {
       setLoading(false);
     }
   };
 
   if (!summary) {
-    return <div className="p-4">Đang tải dữ liệu...</div>;
+    return <div className="p-4 text-center">Đang tải dữ liệu...</div>;
   }
 
   const latestRound = deal?.negotiationRounds[deal.negotiationRounds.length - 1];
-  const isWaitingForResponse =
-    latestRound?.status === "WAITING_FOR_COUNTER";
-  const isPriceMatched = latestRound?.proposedPrice === latestRound?.respondedPrice;
+  const isWaitingForResponse = latestRound?.status === "WAITING_FOR_COUNTER";
+  const isPriceMatched =
+    latestRound?.proposedPrice === latestRound?.respondedPrice;
+
+  // Helper function to format price with color
+  const getPriceColor = (price: number) => {
+    if (price < summary.initialPrice) return "text-green-600"; // Going down
+    if (price > summary.initialPrice) return "text-red-600"; // Going up
+    return "text-gray-600";
+  };
 
   return (
-    <div className="w-full max-w-3xl mx-auto p-4 space-y-4">
-      {/* Summary Card */}
+    <div className="w-full max-w-4xl mx-auto p-4 space-y-4">
+      {/* Header Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
+          <CardContent className="pt-6">
+            <p className="text-sm text-gray-600">Giá Khởi Đầu</p>
+            <p className="text-2xl font-bold text-blue-700">
+              {summary.initialPrice.toLocaleString()} đ
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-orange-50 to-orange-100">
+          <CardContent className="pt-6">
+            <p className="text-sm text-gray-600">Giá Hiện Tại</p>
+            <p className={`text-2xl font-bold ${getPriceColor(summary.currentProposedPrice)}`}>
+              {summary.currentProposedPrice.toLocaleString()} đ
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {priceChange > 0 ? "↑" : "↓"} {Math.abs(priceChange)}%
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100">
+          <CardContent className="pt-6">
+            <p className="text-sm text-gray-600">Vòng Thương Lượng</p>
+            <p className="text-2xl font-bold text-purple-700">
+              {summary.currentRound} / {summary.totalRounds}
+            </p>
+          </CardContent>
+        </Card>
+
+        {summary.finalPrice && (
+          <Card className="bg-gradient-to-br from-green-50 to-green-100">
+            <CardContent className="pt-6">
+              <p className="text-sm text-gray-600">Giá Chốt ✅</p>
+              <p className="text-2xl font-bold text-green-700">
+                {summary.finalPrice.toLocaleString()} đ
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Negotiation Timeline */}
       <Card>
         <CardHeader>
-          <CardTitle>💰 Thương Lượng Giá</CardTitle>
-          <CardDescription>
-            Round {summary.currentRound} of {summary.totalRounds}
-          </CardDescription>
+          <CardTitle>📊 Lịch Sử Thương Lượng</CardTitle>
         </CardHeader>
-
-        <CardContent className="space-y-4">
-          {/* Price Summary */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <p className="text-sm text-gray-600">Giá ban đầu</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {summary.initialPrice.toLocaleString()} đ
-              </p>
-            </div>
-
-            <div className="bg-orange-50 p-4 rounded-lg">
-              <p className="text-sm text-gray-600">Giá hiện tại</p>
-              <p className="text-2xl font-bold text-orange-600">
-                {summary.currentProposedPrice.toLocaleString()} đ
-              </p>
-            </div>
-
-            {summary.finalPrice && (
-              <div className="bg-green-50 p-4 rounded-lg col-span-2">
-                <p className="text-sm text-gray-600">Giá chốt</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {summary.finalPrice.toLocaleString()} đ ✅
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Price History */}
-          <div>
-            <h3 className="font-semibold mb-3">📊 Lịch sử thương lượng</h3>
-            <div className="space-y-2">
-              {summary.priceHistory.map((history) => (
-                <div
-                  key={history.round}
-                  className="flex justify-between items-center p-3 bg-gray-100 rounded"
-                >
+        <CardContent>
+          <div className="space-y-3">
+            {deal?.negotiationRounds.map((round, idx) => (
+              <div
+                key={round.id}
+                className={`p-4 rounded-lg border-l-4 ${
+                  round.status === "COMPLETED"
+                    ? "bg-green-50 border-green-500"
+                    : round.status === "RESPONDED"
+                    ? "bg-blue-50 border-blue-500"
+                    : "bg-yellow-50 border-yellow-500"
+                }`}
+              >
+                <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <p className="text-sm font-medium">Round {history.round}</p>
-                    <p className="text-xs text-gray-600">
-                      Đề nghị bởi: {history.by}
-                    </p>
-                  </div>
-
-                  <div className="flex gap-4 items-center">
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">Đề nghị</p>
-                      <p className="font-semibold">
-                        {history.proposed.toLocaleString()} đ
-                      </p>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">Vòng {round.roundNumber}</span>
+                      <Badge
+                        variant={
+                          round.status === "COMPLETED"
+                            ? "default"
+                            : "secondary"
+                        }
+                      >
+                        {round.status === "COMPLETED"
+                          ? "✅ Chốt"
+                          : round.status === "RESPONDED"
+                          ? "↔️ Phản Hồi"
+                          : "⏳ Chờ"}
+                      </Badge>
                     </div>
 
-                    {history.counter && (
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">Phản hồi</p>
-                        <p className="font-semibold text-blue-600">
-                          {history.counter.toLocaleString()} đ
+                    <div className="grid grid-cols-2 gap-4 mt-3">
+                      <div>
+                        <p className="text-xs text-gray-600">
+                          Đề Nghị Bởi: {round.proposedBy}
                         </p>
+                        <p className="text-lg font-bold text-blue-600">
+                          {round.proposedPrice.toLocaleString()} đ
+                        </p>
+                        {round.message && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            💬 {round.message}
+                          </p>
+                        )}
                       </div>
-                    )}
+
+                      {round.respondedPrice && (
+                        <div>
+                          <p className="text-xs text-gray-600">
+                            Phản Hồi Bởi: {round.respondedBy}
+                          </p>
+                          <p className="text-lg font-bold text-orange-600">
+                            {round.respondedPrice.toLocaleString()} đ
+                          </p>
+                          {round.responseMessage && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              💬 {round.responseMessage}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-right text-xs text-gray-500">
+                    {new Date(round.createdAt).toLocaleDateString("vi-VN")}
+                    <br />
+                    {new Date(round.createdAt).toLocaleTimeString("vi-VN")}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Status */}
-          <div className="p-3 bg-blue-50 rounded-lg">
-            <p className="text-sm text-gray-600">Trạng thái</p>
-            <div className="flex items-center gap-2 mt-2">
-              {completed ? (
-                <Badge className="bg-green-600">Hoàn thành</Badge>
-              ) : isWaitingForResponse ? (
-                <Badge className="bg-yellow-600">Chờ phản hồi</Badge>
-              ) : (
-                <Badge className="bg-blue-600">Đang thương lượng</Badge>
-              )}
-
-              {summary.lastCounterPrice && (
-                <span className="text-sm">
-                  Giá cuối cùng: {summary.lastCounterPrice.toLocaleString()} đ
-                </span>
-              )}
-            </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
-
-      {/* Negotiation Action Card */}
+      {/* Action Card - Waiting for Response */}
       {!completed && isWaitingForResponse && (
-        <Card>
+        <Card className="border-yellow-300 bg-yellow-50">
           <CardHeader>
-            <CardTitle>📝 Giá Đề Nghị Hiện Tại</CardTitle>
+            <CardTitle className="text-yellow-800">
+              ⏳ Chờ Phản Hồi Của Bạn
+            </CardTitle>
             <CardDescription>
-              Giá hiện tại: {summary.currentProposedPrice.toLocaleString()} đ
+              Giá Hiện Tại: {summary.currentProposedPrice.toLocaleString()} đ
             </CardDescription>
           </CardHeader>
 
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium">
+              <label className="text-sm font-medium block mb-2">
                 Giá Phản Hồi / Phản Đối (VND)
               </label>
               <Input
@@ -311,36 +371,43 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
                 value={counterPrice}
                 onChange={(e) => setCounterPrice(e.target.value)}
                 disabled={loading}
+                className="text-lg"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Từ: {summary.initialPrice.toLocaleString()} đ | Hiện Tại:{" "}
+                {summary.currentProposedPrice.toLocaleString()} đ
+              </p>
             </div>
 
             <div>
-              <label className="text-sm font-medium">Thông Điệp (Tùy Chọn)</label>
+              <label className="text-sm font-medium block mb-2">
+                Thông Điệp (Tùy Chọn)
+              </label>
               <Input
                 type="text"
-                placeholder="Thêm tin nhắn để giải thích giá của bạn"
+                placeholder="Ví dụ: Tôi có thể chấp nhận giá này nếu..."
                 value={counterMessage}
                 onChange={(e) => setCounterMessage(e.target.value)}
                 disabled={loading}
               />
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 onClick={handleRespond}
                 disabled={loading || !counterPrice}
-                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                className="flex-1 min-w-fit bg-orange-600 hover:bg-orange-700"
               >
-                {loading ? "Đang xử lý..." : "💭 Phản Đối Giá"}
+                {loading ? "⏳ Đang xử lý..." : "💭 Phản Đối Giá"}
               </Button>
 
               {isPriceMatched && (
                 <Button
                   onClick={handleAccept}
                   disabled={loading}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  className="flex-1 min-w-fit bg-green-600 hover:bg-green-700"
                 >
-                  {loading ? "Đang xử lý..." : "✅ Chấp Nhận"}
+                  {loading ? "⏳ Đang xử lý..." : "✅ Chấp Nhận"}
                 </Button>
               )}
 
@@ -348,55 +415,106 @@ export function NegotiationFlow({ dealId }: { dealId: string }) {
                 onClick={handleReject}
                 disabled={loading}
                 variant="destructive"
-                className="flex-1"
+                className="flex-1 min-w-fit"
               >
-                {loading ? "Đang xử lý..." : "❌ Từ Chối"}
+                {loading ? "⏳ Đang xử lý..." : "❌ Từ Chối"}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Completed Card */}
+      {/* Completion Card */}
       {completed && (
-        <Card className="border-green-500">
-          <CardContent className="p-6">
-            <div className="text-center">
-              <h3 className="text-xl font-bold text-green-600 mb-2">
-                ✅ Thương Lượng Hoàn Thành!
-              </h3>
-              <p className="text-gray-600">
-                Giá chốt: <span className="text-2xl font-bold text-green-600">
+        <Card className="border-green-400 bg-green-50">
+          <CardContent className="pt-6">
+            <div className="text-center space-y-4">
+              <div className="flex justify-center">
+                <CheckCircle2 className="w-16 h-16 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-green-700 mb-2">
+                  ✅ Thương Lượng Thành Công!
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  Sau <span className="font-semibold">{summary.totalRounds}</span> vòng
+                  thương lượng
+                </p>
+              </div>
+
+              <div className="bg-white rounded-lg p-4 border-2 border-green-200">
+                <p className="text-sm text-gray-600 mb-1">Giá Chốt Cuối Cùng</p>
+                <p className="text-3xl font-bold text-green-700">
                   {summary.finalPrice?.toLocaleString()} đ
-                </span>
-              </p>
-              <p className="text-sm text-gray-500 mt-2">
-                Sau {summary.totalRounds} vòng thương lượng
-              </p>
+                </p>
+                {summary.initialPrice && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {priceChange > 0
+                      ? `↑ Tăng ${Math.abs(priceChange)}% từ giá khởi đầu`
+                      : `↓ Giảm ${Math.abs(priceChange)}% từ giá khởi đầu`}
+                  </p>
+                )}
+              </div>
+
+              <Button
+                onClick={() => window.location.href = `/deals/${dealId}`}
+                className="w-full bg-green-600 hover:bg-green-700"
+              >
+                📋 Xem Chi Tiết Thương Lượng
+              </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* All Rounds Detail */}
-      {deal && deal.negotiationRounds.length > 0 && (
+      {/* Price Change Chart */}
+      {deal && deal.negotiationRounds.length > 1 && (
         <Card>
           <CardHeader>
-            <CardTitle>🔍 Chi Tiết Tất Cả Vòng Thương Lượng</CardTitle>
+            <CardTitle>📈 Xu Hướng Giá</CardTitle>
           </CardHeader>
-
           <CardContent>
-            <div className="space-y-4">
-              {deal.negotiationRounds.map((round) => (
-                <div key={round.id} className="border-l-4 border-gray-300 pl-4 py-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-semibold">
-                        Round {round.roundNumber} - {round.proposedBy}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        Đề nghị: {round.proposedPrice.toLocaleString()} đ
-                      </p>
+            <div className="space-y-2">
+              {summary.priceHistory.map((history, idx) => {
+                const nextPrice =
+                  idx < summary.priceHistory.length - 1
+                    ? summary.priceHistory[idx + 1].proposed
+                    : summary.finalPrice || history.proposed;
+                const change = nextPrice - history.proposed;
+
+                return (
+                  <div key={history.round} className="flex items-center gap-3">
+                    <span className="text-sm font-medium min-w-fit">
+                      Round {history.round}
+                    </span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-8 flex items-center px-3">
+                      <span className="text-sm font-bold">
+                        {history.proposed.toLocaleString()} đ
+                      </span>
+                    </div>
+                    <div className="text-sm font-semibold min-w-fit">
+                      {change > 0 ? (
+                        <span className="text-red-600 flex items-center gap-1">
+                          <TrendingUp className="w-4 h-4" /> +
+                          {change.toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-green-600 flex items-center gap-1">
+                          <TrendingDown className="w-4 h-4" /> -
+                          {Math.abs(change).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
 
                       {round.message && (
                         <p className="text-sm text-gray-700 mt-1">
