@@ -71,33 +71,32 @@ export const trucksApi = {
 // Price Negotiation (NEW ENDPOINTS)
 export const negotiationApi = {
   // Create a deal and start negotiation
-  createDeal: (shipmentId: string, proposedPrice: number) =>
+  createDeal: (shipmentId: string, truckId: string, proposedPrice: number) =>
     apiCall("/api/negotiation/deals", {
       method: "POST",
-      body: JSON.stringify({ shipmentId, proposedPrice }),
+      body: JSON.stringify({ shipmentId, truckId, proposedPrice }), // 💡 Đã đầy đủ 3 trường bắt buộc
     }),
-  
+
   // Get a deal with all negotiation rounds
-  getDeal: (dealId: string) =>
-    apiCall(`/api/negotiation/deals/${dealId}`),
-  
+  getDeal: (dealId: string) => apiCall(`/api/negotiation/deals/${dealId}`),
+
   // Respond to negotiation round (counter-offer)
   respondToRound: (dealId: string, roundId: string, respondedPrice: number) =>
     apiCall(`/api/negotiation/deals/${dealId}/rounds/${roundId}/respond`, {
       method: "POST",
       body: JSON.stringify({ respondedPrice }),
     }),
-  
+
   // Accept a proposed price
   acceptPrice: (dealId: string, roundId: string) =>
     apiCall(`/api/negotiation/deals/${dealId}/rounds/${roundId}/accept`, {
       method: "POST",
     }),
-  
+
   // Get all negotiations for a shipment
   getShipmentNegotiations: (shipmentId: string) =>
     apiCall(`/api/negotiation/shipments/${shipmentId}/negotiations`),
-  
+
   // Reject a negotiation
   rejectDeal: (dealId: string) =>
     apiCall(`/api/negotiation/deals/${dealId}/reject`, {
@@ -121,7 +120,8 @@ export const matchingApi = {
   getContext: () => apiCall("/api/matching-context"),
   getShipmentDetail: (shipmentId: string) =>
     apiCall(`/api/shipments/${shipmentId}/matches`),
-  getTruckDetail: (truckId: string) => apiCall(`/api/trucks/${truckId}/matches`),
+  getTruckDetail: (truckId: string) =>
+    apiCall(`/api/trucks/${truckId}/matches`),
 };
 
 // Aggregation
@@ -168,28 +168,28 @@ export const assistantApi = {
     apiCall("/api/assistant/sessions", {
       method: "POST",
     }),
-  
+
   // Send user response to current question
   sendMessage: (sessionId: string, userResponse: any) =>
     apiCall(`/api/assistant/sessions/${sessionId}/messages`, {
       method: "POST",
       body: JSON.stringify({ userResponse }),
     }),
-  
+
   // Get review data before submission
   getReview: (sessionId: string) =>
     apiCall(`/api/assistant/sessions/${sessionId}/review`),
-  
+
   // Submit the order from session
   submitOrder: (sessionId: string) =>
     apiCall(`/api/assistant/sessions/${sessionId}/submit`, {
       method: "POST",
     }),
-  
+
   // Get conversation history
   getHistory: (sessionId: string) =>
     apiCall(`/api/assistant/sessions/${sessionId}/history`),
-  
+
   // Reset session and start over
   resetSession: (sessionId: string) =>
     apiCall(`/api/assistant/sessions/${sessionId}/reset`, {
