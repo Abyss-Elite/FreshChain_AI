@@ -204,6 +204,20 @@ export function generateNextQuestion(
       type: "checkbox",
       required: false,
     },
+    specialTemperature: {
+      question:
+        "Hàng có yêu cầu nhiệt độ/bảo quản đặc biệt (vệ sinh, lây nhiễm chéo) không?",
+      fieldName: "specialTemperature",
+      type: "checkbox",
+      required: false,
+    },
+    allowCombine: {
+      question:
+        "Bạn có cho phép ghép chung đơn này với các chuyến hàng khác không?",
+      fieldName: "allowCombine",
+      type: "checkbox",
+      required: false,
+    },
   };
 
   // Return first missing field question
@@ -214,6 +228,48 @@ export function generateNextQuestion(
   }
 
   return null;
+}
+
+export function buildCompatibilityWarnings(data: OrderData) {
+  const warnings: string[] = [];
+
+  if (data.strongSmell) {
+    warnings.push(
+      "Hàng mùi mạnh, nên tránh ghép chung với hàng dễ nhiễm mùi hoặc vệ sinh kém",
+    );
+  }
+
+  if (data.frozenRequired && data.requiredTempMax !== undefined && data.requiredTempMax > 2) {
+    warnings.push(
+      "Hàng đông lạnh cần giữ nhiệt độ dưới 2°C; nếu không có xe lạnh phù hợp sẽ dễ hư hỏng",
+    );
+  }
+
+  if (data.specialTemperature) {
+    warnings.push(
+      "Hàng yêu cầu nhiệt độ/bảo quản đặc biệt; cần xe chuyên dụng và điều kiện vệ sinh cao",
+    );
+  }
+
+  if (data.fragile && data.weightKg !== undefined && data.weightKg > 1200) {
+    warnings.push(
+      "Hàng dễ vỡ lớn, cần vận chuyển cẩn thận và hạn chế ghép chung với hàng nặng khác",
+    );
+  }
+
+  if (data.allowCombine === false) {
+    warnings.push(
+      "Yêu cầu không ghép chung đơn hàng; hãy đảm bảo đơn này được vận chuyển riêng hoặc theo điều kiện riêng biệt",
+    );
+  }
+
+  if (data.cargoType?.toLowerCase().includes("sau rieng")) {
+    warnings.push(
+      "Sầu riêng có mùi mạnh, dễ ảnh hưởng đến hàng hóa khác nếu vận chuyển ghép chung",
+    );
+  }
+
+  return warnings;
 }
 
 /**
@@ -302,6 +358,12 @@ export async function updateSessionWithResponse(
     deliveryTime: updateData.deliveryTime || session.deliveryTime,
     proposedPrice: updateData.proposedPrice ?? session.proposedPrice,
     notes: updateData.notes || session.notes,
+    fragile: updateData.fragile ?? session.fragile,
+    strongSmell: updateData.strongSmell ?? session.strongSmell,
+    frozenRequired: updateData.frozenRequired ?? session.frozenRequired,
+    specialTemperature:
+      updateData.specialTemperature ?? session.specialTemperature,
+    allowCombine: updateData.allowCombine ?? session.allowCombine,
   };
 
   const analysis = analyzeOrderCompleteness(currentData);
@@ -460,25 +522,28 @@ export async function getSessionReviewData(sessionId: string) {
     throw new Error("Session not found");
   }
 
+  const summary: OrderData = {
+    cargoType: session.cargoType ?? undefined,
+    category: session.category ?? undefined,
+    weightKg: session.weightKg ?? undefined,
+    requiredTempMin: session.requiredTempMin ?? undefined,
+    requiredTempMax: session.requiredTempMax ?? undefined,
+    pickup: session.pickup ?? undefined,
+    dropoff: session.dropoff ?? undefined,
+    deliveryTime: session.deliveryTime ?? undefined,
+    proposedPrice: session.proposedPrice ?? undefined,
+    notes: session.notes ?? undefined,
+    strongSmell: session.strongSmell ?? undefined,
+    fragile: session.fragile ?? undefined,
+    frozenRequired: session.frozenRequired ?? undefined,
+    specialTemperature: session.specialTemperature ?? undefined,
+    allowCombine: session.allowCombine ?? undefined,
+    compatibilityNote: session.compatibilityNote ?? undefined,
+  };
+
   return {
-    summary: {
-      cargoType: session.cargoType,
-      category: session.category,
-      weightKg: session.weightKg,
-      requiredTempMin: session.requiredTempMin,
-      requiredTempMax: session.requiredTempMax,
-      pickup: session.pickup,
-      dropoff: session.dropoff,
-      deliveryTime: session.deliveryTime,
-      proposedPrice: session.proposedPrice,
-      notes: session.notes,
-      strongSmell: session.strongSmell,
-      fragile: session.fragile,
-      frozenRequired: session.frozenRequired,
-      specialTemperature: session.specialTemperature,
-      allowCombine: session.allowCombine,
-      compatibilityNote: session.compatibilityNote,
-    },
+    summary,
+    compatibilityWarnings: buildCompatibilityWarnings(summary),
     completenessScore: session.completenessScore,
     conversationHistory: session.conversationHistory,
   };

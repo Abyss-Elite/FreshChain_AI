@@ -1,16 +1,21 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { aggregateTrucks, scoreTruck } from "../services/matching.js";
+import { aggregateTrucks, isTruckEligibleForShipment, scoreTruck } from "../services/matching.js";
 import { asyncHandler, HttpError } from "../utils/http.js";
 import { prisma } from "../utils/prisma.js";
 
 export const apiRouter = Router();
 
-const optionalText = z.preprocess(
-  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
-  z.string().optional(),
-);
+const optionalText = z.preprocess((value) => {
+  if (typeof value === "string") {
+    return value.trim() === "" ? undefined : value;
+  }
+  if (value === null) {
+    return undefined;
+  }
+  return value;
+}, z.string().optional());
 
 const shipmentSchema = z.object({
   cargoType: z.string().min(2),
@@ -102,6 +107,7 @@ apiRouter.get(
       const target = myTrucks[0] || null;
       const matches = target
         ? myShipments
+            .filter((shipment) => isTruckEligibleForShipment(shipment, target))
             .map((shipment) => ({
               shipment,
               truck: target,
@@ -125,6 +131,7 @@ apiRouter.get(
       const target = myShipments[0] || null;
       const matches = target
         ? trucks
+            .filter((truck) => isTruckEligibleForShipment(target, truck))
             .map((truck) => ({
               shipment: target,
               truck,
@@ -217,6 +224,7 @@ apiRouter.get(
     });
     const limit = req.query.limit ? Number(req.query.limit) : undefined;
     let matches = trucks
+      .filter((truck) => isTruckEligibleForShipment(shipment, truck))
       .map((truck) => ({ truck, ...scoreTruck(shipment, truck) }))
       .sort((a, b) => b.matchingScore - a.matchingScore);
 
@@ -253,12 +261,17 @@ apiRouter.get(
     });
 
     const matches = trucks
+      .filter((truck) => isTruckEligibleForShipment(shipment, truck))
       .map((truck) => ({ truck, ...scoreTruck(shipment, truck) }))
       .sort((a, b) => b.matchingScore - a.matchingScore);
 
     const requests = await prisma.deal.findMany({
       where: { shipmentId: shipment.id },
-      include: { truck: true, owner: true },
+      include: {
+        truck: true,
+        owner: true,
+        negotiationRounds: { orderBy: { createdAt: "asc" } },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -286,12 +299,17 @@ apiRouter.get(
     });
 
     const matches = shipments
+      .filter((shipment) => isTruckEligibleForShipment(shipment, truck))
       .map((shipment) => ({ shipment, ...scoreTruck(shipment, truck) }))
       .sort((a, b) => b.matchingScore - a.matchingScore);
 
     const requests = await prisma.deal.findMany({
       where: { truckId: truck.id },
-      include: { shipment: true, owner: true },
+      include: {
+        shipment: true,
+        owner: true,
+        negotiationRounds: { orderBy: { createdAt: "asc" } },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -313,7 +331,8 @@ apiRouter.post(
     });
     if (!shipment) throw new HttpError(404, "Shipment not found");
     const trucks = await prisma.truck.findMany({ where: { active: true } });
-    res.json(aggregateTrucks(shipment, trucks, body.neededTrucks));
+    const eligibleTrucks = trucks.filter((truck) => isTruckEligibleForShipment(shipment, truck));
+    res.json(aggregateTrucks(shipment, eligibleTrucks, body.neededTrucks));
   }),
 );
 
@@ -384,6 +403,7 @@ apiRouter.get(
         include: {
           shipment: true,
           truck: true,
+          negotiationRounds: { orderBy: { createdAt: "asc" } },
         },
         orderBy: { createdAt: "desc" },
       });
@@ -399,13 +419,19 @@ apiRouter.get(
           shipment: true,
           truck: true,
           owner: { select: { id: true, name: true } },
+          negotiationRounds: { orderBy: { createdAt: "asc" } },
         },
         orderBy: { createdAt: "desc" },
       });
     } else {
       // Nếu là ADMIN thì trả về toàn bộ
       deals = await prisma.deal.findMany({
-        include: { shipment: true, owner: true, truck: true },
+        include: {
+          shipment: true,
+          owner: true,
+          truck: true,
+          negotiationRounds: { orderBy: { createdAt: "asc" } },
+        },
         orderBy: { createdAt: "desc" },
       });
     }
@@ -477,6 +503,24 @@ apiRouter.patch(
     });
 
     res.json(updatedShipment);
+  }),
+);
+
+apiRouter.delete(
+  "/shipments/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    const shipment = await prisma.shipment.findUnique({ where: { id } });
+    if (!shipment) throw new HttpError(404, "Không tìm thấy đơn hàng");
+
+    if (shipment.ownerId !== req.user!.id && req.user!.role !== "ADMIN") {
+      throw new HttpError(403, "Bạn không có quyền xóa đơn hàng này");
+    }
+
+    await prisma.shipment.delete({ where: { id } });
+    res.status(204).send();
   }),
 );
 

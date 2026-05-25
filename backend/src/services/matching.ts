@@ -16,10 +16,61 @@ function normalizeCity(value: string) {
     .replace("Ho Chi Minh", "TP.HCM");
 }
 
+function normalizeRouteText(route: string) {
+  return route
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function routeDistance(pickup: string, dropoff: string) {
   const from = normalizeCity(pickup);
   const to = normalizeCity(dropoff);
   return cityDistance[from]?.[to] || cityDistance[to]?.[from] || 420;
+}
+
+function isRouteCompatible(shipment: Shipment, truck: Truck) {
+  const normalizedRoute = normalizeRouteText(truck.currentRoute);
+  const pickup = normalizeRouteText(shipment.pickup);
+  const dropoff = normalizeRouteText(shipment.dropoff);
+  const expectedRoute = `${pickup} -> ${dropoff}`;
+  const reverseRoute = `${dropoff} -> ${pickup}`;
+
+  if (normalizedRoute === expectedRoute || normalizedRoute === reverseRoute) {
+    return true;
+  }
+  return (
+    normalizedRoute.includes(pickup) &&
+    normalizedRoute.includes(dropoff) &&
+    normalizedRoute.indexOf(pickup) < normalizedRoute.indexOf(dropoff)
+  );
+}
+
+function isTemperatureCompatible(shipment: Shipment, truck: Truck) {
+  if ((shipment.frozenRequired || shipment.specialTemperature) && !truck.refrigerated) {
+    return false;
+  }
+  if (truck.refrigerated && truck.tempMin != null && truck.tempMax != null) {
+    return truck.tempMin <= shipment.requiredTempMin && truck.tempMax >= shipment.requiredTempMax;
+  }
+  return !shipment.frozenRequired && !shipment.specialTemperature;
+}
+
+export function isTruckEligibleForShipment(shipment: Shipment, truck: Truck) {
+  if (truck.remainingKg < shipment.weightKg) {
+    return false;
+  }
+  if (!isRouteCompatible(shipment, truck)) {
+    return false;
+  }
+  if (!isTemperatureCompatible(shipment, truck)) {
+    return false;
+  }
+  const hoursUntilDelivery = (shipment.deliveryTime.getTime() - truck.eta.getTime()) / 36e5;
+  if (hoursUntilDelivery < 0) {
+    return false;
+  }
+  return true;
 }
 
 export function scoreTruck(shipment: Shipment, truck: Truck) {
@@ -42,14 +93,26 @@ export function scoreTruck(shipment: Shipment, truck: Truck) {
   const capacityRatio = Math.min(truck.remainingKg / Math.max(shipment.weightKg, 1), 1.4);
   const capacityScore = Math.round(Math.min(100, capacityRatio * 72));
   const distance = routeDistance(shipment.pickup, shipment.dropoff);
-  const routeMatch = truck.currentRoute.includes(shipment.pickup) || truck.currentRoute.includes(shipment.dropoff);
-  const distanceScore = Math.max(35, routeMatch ? 95 : 100 - Math.round(distance / 12));
+  const routeMatch = isRouteCompatible(shipment, truck);
+  const distanceScore = routeMatch ? 95 : Math.max(20, 100 - Math.round(distance / 8));
+
   const hoursUntilDelivery = (shipment.deliveryTime.getTime() - truck.eta.getTime()) / 36e5;
-  const timeScore = Math.max(30, Math.min(100, Math.round(70 + hoursUntilDelivery * 4)));
+  const timeScore = hoursUntilDelivery < 0
+    ? 30
+    : Math.max(50, Math.min(100, 100 - Math.round(Math.max(0, hoursUntilDelivery - 2) * 4)));
+
+  const warnings = [...compatibility.warnings];
+  if (!routeMatch) {
+    warnings.push("Tuyến đường giao nhận không khớp");
+  }
+  if (hoursUntilDelivery < 0) {
+    warnings.push("Thời gian xe đến trễ hơn thời hạn giao hàng");
+  }
+
   const matchingScore = Math.round(
-    compatibility.score * 0.38 + capacityScore * 0.24 + distanceScore * 0.24 + timeScore * 0.14
+    compatibility.score * 0.42 + capacityScore * 0.26 + distanceScore * 0.22 + timeScore * 0.10
   );
-  const estimatedSavings = Math.max(350000, Math.round((shipment.proposedPrice * matchingScore) / 220));
+  const estimatedSavings = Math.max(350000, Math.round((shipment.proposedPrice * matchingScore) / 240));
 
   return {
     matchingScore,
@@ -58,7 +121,7 @@ export function scoreTruck(shipment: Shipment, truck: Truck) {
     capacityScore,
     timeScore,
     estimatedSavings,
-    warnings: compatibility.warnings
+    warnings
   };
 }
 
