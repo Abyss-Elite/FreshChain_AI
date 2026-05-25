@@ -61,7 +61,7 @@ negotiationRouter.post(
 
     // Determine initiator role based on user
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: req.user!.id },
     });
 
     const initiatorRole = user?.role === "SHIPPER" ? "SHIPPER" : "CARRIER";
@@ -71,7 +71,7 @@ negotiationRouter.post(
       truckId,
       proposedPrice,
       initiatorRole,
-      req.user.id,
+      req.user!.id,
       message
     );
 
@@ -131,7 +131,7 @@ negotiationRouter.post(
 
     // Determine respondent role
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: req.user!.id },
     });
 
     const respondentRole = user?.role === "SHIPPER" ? "SHIPPER" : "CARRIER";
@@ -182,7 +182,7 @@ negotiationRouter.post(
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: req.user!.id },
     });
 
     const acceptorRole = user?.role === "SHIPPER" ? "SHIPPER" : "CARRIER";

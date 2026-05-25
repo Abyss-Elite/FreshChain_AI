@@ -31,7 +31,7 @@ assistantRouter.post(
   "/sessions",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const session = await getOrCreateAssistantSession(req.user.id);
+    const session = await getOrCreateAssistantSession(req.user!.id);
 
     // Get next question if not complete
     const analysis = analyzeOrderCompleteness({
@@ -74,7 +74,7 @@ assistantRouter.post(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -110,7 +110,7 @@ assistantRouter.get(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -136,12 +136,12 @@ assistantRouter.post(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
     try {
-      const shipment = await submitOrderFromSession(sessionId, req.user.id);
+      const shipment = await submitOrderFromSession(sessionId, req.user!.id);
 
       res.json({
         success: true,
@@ -173,7 +173,7 @@ assistantRouter.get(
       },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -197,7 +197,7 @@ assistantRouter.post(
       where: { id: sessionId },
     });
 
-    if (!session || session.userId !== req.user.id) {
+    if (!session || session.userId !== req.user!.id) {
       throw new HttpError(403, "Unauthorized");
     }
 
@@ -210,7 +210,7 @@ assistantRouter.post(
     });
 
     // Create new session
-    const newSession = await getOrCreateAssistantSession(req.user.id);
+    const newSession = await getOrCreateAssistantSession(req.user!.id);
 
     res.json({
       newSessionId: newSession.id,

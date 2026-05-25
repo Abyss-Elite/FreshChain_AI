@@ -110,6 +110,7 @@ export async function respondToNegotiation(
     const deal = await prisma.deal.update({
       where: { id: round.dealId },
       data: {
+        status: "ACCEPTED",
         finalPrice: counterPrice,
       },
     });
@@ -131,6 +132,11 @@ export async function respondToNegotiation(
       message: `Counter: ${counterPrice}. ${message || ""}`,
       status: NegotiationRoundStatus.WAITING_FOR_COUNTER,
     },
+  });
+
+  await prisma.deal.update({
+    where: { id: round.dealId },
+    data: { status: "COUNTERED" },
   });
 
   return {
@@ -170,6 +176,7 @@ export async function acceptProposedPrice(
   const deal = await prisma.deal.update({
     where: { id: round.dealId },
     data: {
+      status: "ACCEPTED",
       finalPrice: round.proposedPrice,
     },
   });
@@ -258,6 +265,11 @@ export async function rejectNegotiation(dealId: string, reason?: string) {
       },
     });
   }
+
+  await prisma.deal.update({
+    where: { id: dealId },
+    data: { status: "REJECTED" },
+  });
 
   return deal;
 }

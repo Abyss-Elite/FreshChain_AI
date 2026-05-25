@@ -17,10 +17,20 @@ function normalizeCity(value: string) {
 }
 
 function normalizeRouteText(route: string) {
-  return route
+  const normalized = route
+    .replace("Đ", "D")
+    .replace("đ", "d")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ")
+    .replace(/[^\p{L}\p{N}.]+/gu, " ")
     .trim()
     .toLowerCase();
+
+  return normalized
+    .replace(/\btp\.?\s*hcm\b/g, "ho chi minh")
+    .replace(/\bthanh pho ho chi minh\b/g, "ho chi minh")
+    .replace(/\bsai gon\b/g, "ho chi minh");
 }
 
 function routeDistance(pickup: string, dropoff: string) {
@@ -33,17 +43,10 @@ function isRouteCompatible(shipment: Shipment, truck: Truck) {
   const normalizedRoute = normalizeRouteText(truck.currentRoute);
   const pickup = normalizeRouteText(shipment.pickup);
   const dropoff = normalizeRouteText(shipment.dropoff);
-  const expectedRoute = `${pickup} -> ${dropoff}`;
-  const reverseRoute = `${dropoff} -> ${pickup}`;
+  const pickupIndex = normalizedRoute.indexOf(pickup);
+  const dropoffIndex = normalizedRoute.indexOf(dropoff);
 
-  if (normalizedRoute === expectedRoute || normalizedRoute === reverseRoute) {
-    return true;
-  }
-  return (
-    normalizedRoute.includes(pickup) &&
-    normalizedRoute.includes(dropoff) &&
-    normalizedRoute.indexOf(pickup) < normalizedRoute.indexOf(dropoff)
-  );
+  return pickupIndex >= 0 && dropoffIndex >= 0 && pickupIndex < dropoffIndex;
 }
 
 function isTemperatureCompatible(shipment: Shipment, truck: Truck) {

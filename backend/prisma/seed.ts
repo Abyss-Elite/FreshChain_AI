@@ -18,6 +18,12 @@ const cargo = [
   { cargoType: "Hang dong lanh tong hop", category: "Hang dong lanh", min: -22, max: -12, frozenRequired: true, specialTemperature: true }
 ];
 
+const hcmToDaNangTrucks = [
+  { plateNumber: "51C-90001", type: "Xe lanh 8 tan", maxCapacityKg: 8000, remainingKg: 5000, tempMin: 0, tempMax: 8, etaHours: 4, currentTemp: 4 },
+  { plateNumber: "51C-90002", type: "Xe lanh 10 tan", maxCapacityKg: 10000, remainingKg: 7000, tempMin: -5, tempMax: 10, etaHours: 6, currentTemp: 3 },
+  { plateNumber: "51C-90003", type: "Xe lanh 6 tan", maxCapacityKg: 6000, remainingKg: 3500, tempMin: 2, tempMax: 8, etaHours: 8, currentTemp: 5 }
+];
+
 async function main() {
   await prisma.trackingEvent.deleteMany();
   await prisma.match.deleteMany();
@@ -50,6 +56,27 @@ async function main() {
         eta: new Date(Date.now() + (2 + i) * 60 * 60 * 1000),
         currentTemp: refrigerated ? -4 + (i % 8) : null,
         active: i % 9 !== 0
+      }
+    });
+  }
+
+  for (const truck of hcmToDaNangTrucks) {
+    await prisma.truck.create({
+      data: {
+        ownerId: shipper.id,
+        type: truck.type,
+        plateNumber: truck.plateNumber,
+        maxCapacityKg: truck.maxCapacityKg,
+        remainingKg: truck.remainingKg,
+        refrigerated: true,
+        tempMin: truck.tempMin,
+        tempMax: truck.tempMax,
+        currentRoute: "Ho Chi Minh -> Da Nang",
+        currentLat: 10.8231,
+        currentLng: 106.6297,
+        eta: new Date(Date.now() + truck.etaHours * 60 * 60 * 1000),
+        currentTemp: truck.currentTemp,
+        active: true
       }
     });
   }
@@ -90,6 +117,33 @@ async function main() {
       }
     });
   }
+
+  await prisma.shipment.create({
+    data: {
+      ownerId: carrier.id,
+      cargoType: "Rau Da Lat test HCM Da Nang",
+      category: "Thuc pham tuoi song",
+      weightKg: 3000,
+      requiredTempMin: 2,
+      requiredTempMax: 8,
+      pickup: "Ho Chi Minh",
+      dropoff: "Da Nang",
+      pickupLat: 10.8231,
+      pickupLng: 106.6297,
+      dropoffLat: 16.0471,
+      dropoffLng: 108.2068,
+      deliveryTime: new Date(Date.now() + 30 * 60 * 60 * 1000),
+      proposedPrice: 6500000,
+      notes: "Don test match voi 3 xe 51C-90001, 51C-90002, 51C-90003.",
+      strongSmell: false,
+      fragile: false,
+      frozenRequired: false,
+      specialTemperature: true,
+      allowCombine: true,
+      compatibilityNote: "Hang rau tuoi can xe lanh 2-8C.",
+      status: "MATCHING"
+    }
+  });
 }
 
 main()

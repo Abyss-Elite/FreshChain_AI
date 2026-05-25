@@ -6,6 +6,7 @@ import { asyncHandler, HttpError } from "../utils/http.js";
 import { prisma } from "../utils/prisma.js";
 
 export const apiRouter = Router();
+const matchableShipmentStatuses = ["PENDING", "MATCHING"] as const;
 
 const optionalText = z.preprocess((value) => {
   if (typeof value === "string") {
@@ -101,7 +102,7 @@ apiRouter.get(
         orderBy: { eta: "asc" },
       });
       const myShipments = await prisma.shipment.findMany({
-        where: { status: "MATCHING" },
+        where: { status: { in: [...matchableShipmentStatuses] } },
         orderBy: { createdAt: "desc" },
       });
       const target = myTrucks[0] || null;
@@ -121,7 +122,7 @@ apiRouter.get(
 
     if (role === "CARRIER") {
       const myShipments = await prisma.shipment.findMany({
-        where: { ownerId: userId, status: { in: ["PENDING", "MATCHING"] } },
+        where: { ownerId: userId, status: { in: [...matchableShipmentStatuses] } },
         orderBy: { createdAt: "desc" },
       });
       const trucks = await prisma.truck.findMany({
@@ -294,7 +295,7 @@ apiRouter.get(
     }
 
     const shipments = await prisma.shipment.findMany({
-      where: { status: "MATCHING" },
+      where: { status: { in: [...matchableShipmentStatuses] } },
       include: { owner: true },
     });
 
