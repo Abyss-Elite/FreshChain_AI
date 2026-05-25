@@ -1,0 +1,22 @@
+{
+  "name": "freshchain-startup",
+  "version": "1.0.0",
+  "description": "FreshChain - Multi-round negotiation and AI-powered order creation platform",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:headed": "playwright test --headed",
+    "db:migrate": "npm --prefix backend run prisma:migrate",
+    "db:seed": "npm --prefix backend run seed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.1",
+    "concurrently": "^8.2.2"
+  }
+}

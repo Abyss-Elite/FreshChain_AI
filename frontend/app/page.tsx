@@ -16,8 +16,7 @@ export default function LandingPage() {
           FreshChain Logistics
         </Link>
         <div className="flex gap-2">
-          <Link href="/login"><Button variant="ghost">Đăng nhập</Button></Link>
-          <Link href="/dashboard"><Button>Vào hệ thống</Button></Link>
+          <Link href="/login"><Button>Đăng nhập</Button></Link>
         </div>
       </nav>
 

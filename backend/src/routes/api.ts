@@ -317,49 +317,23 @@ apiRouter.post(
   }),
 );
 
+// ⚠️ DEPRECATED: Use POST /api/negotiation/deals instead
+// This endpoint now redirects to the new multi-round negotiation system
 apiRouter.post(
   "/deals",
   requireAuth,
   requireRole("SHIPPER", "CARRIER", "ADMIN"),
   asyncHandler(async (req, res) => {
-    const data = z
-      .object({
-        shipmentId: z.string(),
-        truckId: z.string(),
-        proposedPrice: z.number().int().positive(),
-        status: z.enum(["PROPOSED", "COUNTERED"]).optional(),
-      })
-      .parse(req.body);
-
-    const shipment = await prisma.shipment.findUnique({
-      where: { id: data.shipmentId },
-    });
-    if (!shipment) throw new HttpError(404, "Shipment không tồn tại");
-    if (shipment.status !== "MATCHING") {
-      throw new HttpError(400, "Chỉ có đơn hàng đang MATCHING mới có thể gửi yêu cầu.");
-    }
-
-    const truck = await prisma.truck.findUnique({
-      where: { id: data.truckId },
-    });
-    if (!truck) throw new HttpError(404, "Xe không tồn tại");
-    if (
-      truck.ownerId !== req.user!.id &&
-      shipment.ownerId !== req.user!.id &&
-      req.user!.role !== "ADMIN"
-    ) {
-      throw new HttpError(403, "Bạn chỉ có thể gửi yêu cầu từ chính xe của mình.");
-    }
-
-    const deal = await prisma.deal.create({
-      data: {
-        ...data,
-        ownerId: req.user!.id,
-        status: data.status || "PROPOSED",
+    res.status(301).json({
+      error: "Endpoint deprecated. Use POST /api/negotiation/deals instead.",
+      newEndpoint: "/api/negotiation/deals",
+      example: {
+        shipmentId: "...",
+        truckId: "...",
+        proposedPrice: 500000,
+        message: "Optional message",
       },
-      include: { shipment: true, truck: true, owner: true },
     });
-    res.status(201).json(deal);
   }),
 );
 
@@ -440,113 +414,29 @@ apiRouter.get(
   }),
 );
 
+// ⚠️ DEPRECATED SCHEMA: Use NegotiationRound endpoints for price negotiation
 const updateDealSchema = z.object({
   counterPrice: z.number().int().positive().optional(),
   finalPrice: z.number().int().positive().optional(),
   status: z.enum(["PROPOSED", "COUNTERED", "ACCEPTED", "REJECTED"]),
 });
 
+// ⚠️ DEPRECATED: Use negotiation endpoints instead
+// For accepting a deal: POST /api/negotiation/deals/:dealId/rounds/:roundId/accept
+// For countering: POST /api/negotiation/deals/:dealId/rounds/:roundId/respond
 apiRouter.patch(
   "/deals/:id",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const data = updateDealSchema.parse(req.body);
-
-    const currentDeal = await prisma.deal.findUnique({
-      where: { id },
-      include: {
-        shipment: true,
-        truck: true,
+    res.status(301).json({
+      error: "Endpoint deprecated. Use negotiation endpoints instead.",
+      newEndpoints: {
+        accept: "POST /api/negotiation/deals/:dealId/rounds/:roundId/accept",
+        counter: "POST /api/negotiation/deals/:dealId/rounds/:roundId/respond",
+        info: "GET /api/negotiation/deals/:dealId",
       },
+      note: "The new system supports unlimited negotiation rounds with full price history tracking.",
     });
-
-    if (!currentDeal) throw new HttpError(404, "Deal không tồn tại");
-
-    const isDealOwner = currentDeal.ownerId === req.user!.id;
-    const isShipmentOwner = currentDeal.shipment.ownerId === req.user!.id;
-    const isTruckOwner = currentDeal.truck?.ownerId === req.user!.id;
-    const isAdmin = req.user!.role === "ADMIN";
-
-    if (!isDealOwner && !isShipmentOwner && !isTruckOwner && !isAdmin) {
-      throw new HttpError(403, "Bạn không có quyền cập nhật deal này");
-    }
-
-    if (data.status === "ACCEPTED" || data.status === "REJECTED") {
-      if (!isShipmentOwner && !isTruckOwner && !isAdmin) {
-        throw new HttpError(
-          403,
-          "Chỉ chủ hàng (Carrier) hoặc Admin mới được duyệt/từ chối yêu cầu này",
-        );
-      }
-    }
-
-    if (data.status === "ACCEPTED") {
-      const truckId = currentDeal.truckId || req.body.truckId;
-      if (!truckId) {
-        throw new HttpError(
-          400,
-          "Thiếu thông tin truckId để thực hiện chốt đơn xe",
-        );
-      }
-
-      const updatedData = await prisma.$transaction(async (tx) => {
-        const deal = await tx.deal.update({
-          where: { id },
-          data: {
-            status: "ACCEPTED",
-            finalPrice: data.finalPrice || currentDeal.proposedPrice,
-          },
-        });
-
-        await tx.shipment.update({
-          where: { id: currentDeal.shipmentId },
-          data: {
-            status: "NEGOTIATING",
-          },
-        });
-
-        const truck = await tx.truck.findUnique({ where: { id: truckId } });
-        if (!truck) throw new HttpError(404, "Xe không tồn tại");
-        if (truck.remainingKg < currentDeal.shipment.weightKg) {
-          throw new HttpError(
-            400,
-            "Xe không đủ tải trọng còn lại để nhận đơn hàng này",
-          );
-        }
-
-        await tx.truck.update({
-          where: { id: truckId },
-          data: {
-            remainingKg: {
-              decrement: currentDeal.shipment.weightKg,
-            },
-          },
-        });
-
-        await tx.deal.updateMany({
-          where: {
-            shipmentId: currentDeal.shipmentId,
-            id: { not: id },
-            status: { in: ["PROPOSED", "COUNTERED"] as any },
-          },
-          data: {
-            status: "REJECTED" as any,
-          },
-        });
-
-        return deal;
-      });
-
-      return res.json(updatedData);
-    }
-
-    const updatedDeal = await prisma.deal.update({
-      where: { id },
-      data: data as any,
-    });
-
-    res.json(updatedDeal);
   }),
 );
 

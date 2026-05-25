@@ -29,6 +29,20 @@ enum DealStatus {
   REJECTED
 }
 
+enum NegotiationRoundStatus {
+  PENDING
+  RESPONDED
+  WAITING_FOR_COUNTER
+  COMPLETED
+}
+
+enum AssistantSessionStatus {
+  ACTIVE
+  PENDING_REVIEW
+  SUBMITTED
+  COMPLETED
+}
+
 model User {
   id        String     @id @default(cuid())
   name      String
@@ -40,6 +54,7 @@ model User {
   shipments Shipment[]
   trucks    Truck[]
   deals     Deal[]     @relation("DealOwner")
+  assistantSessions OrderAssistantSession[]
 }
 
 model Shipment {
@@ -111,18 +126,36 @@ model Match {
 }
 
 model Deal {
-  id              String     @id @default(cuid())
-  shipmentId      String
-  shipment        Shipment   @relation(fields: [shipmentId], references: [id])
-  truckId         String?
-  truck           Truck?     @relation(fields: [truckId], references: [id])
-  ownerId         String
-  owner           User       @relation("DealOwner", fields: [ownerId], references: [id])
-  proposedPrice   Int
-  counterPrice    Int?
-  finalPrice      Int?
-  status          DealStatus @default(PROPOSED)
-  createdAt       DateTime   @default(now())
+  id                      String                @id @default(cuid())
+  shipmentId              String
+  shipment                Shipment              @relation(fields: [shipmentId], references: [id])
+  truckId                 String?
+  truck                   Truck?                @relation(fields: [truckId], references: [id])
+  ownerId                 String
+  owner                   User                  @relation("DealOwner", fields: [ownerId], references: [id])
+  status                  DealStatus            @default(PROPOSED)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  negotiationRounds       NegotiationRound[]
+  finalPrice              Int?
+}
+
+model NegotiationRound {
+  id                String                    @id @default(cuid())
+  dealId            String
+  deal              Deal                      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  roundNumber       Int
+  proposedPrice     Int
+  respondedPrice    Int?
+  status            NegotiationRoundStatus    @default(PENDING)
+  proposedBy        String                    
+  respondedBy       String?                   
+  message           String?
+  responseMessage   String?
+  createdAt         DateTime                  @default(now())
+  respondedAt       DateTime?
+  
+  @@index([dealId])
 }
 
 model TrackingEvent {
@@ -135,4 +168,59 @@ model TrackingEvent {
   etaMinutes  Int
   alert       String?
   createdAt   DateTime @default(now())
+}
+
+model OrderAssistantSession {
+  id                    String                        @id @default(cuid())
+  userId                String
+  user                  User                          @relation(fields: [userId], references: [id])
+  status                AssistantSessionStatus        @default(ACTIVE)
+  
+  // Order data being collected
+  cargoType             String?
+  category              String?
+  weightKg              Int?
+  requiredTempMin       Int?
+  requiredTempMax       Int?
+  pickup                String?
+  dropoff               String?
+  pickupLat             Float?
+  pickupLng             Float?
+  dropoffLat            Float?
+  dropoffLng            Float?
+  deliveryTime          DateTime?
+  proposedPrice         Int?
+  notes                 String?
+  strongSmell           Boolean?
+  fragile               Boolean?
+  frozenRequired        Boolean?
+  specialTemperature    Boolean?
+  allowCombine          Boolean?
+  compatibilityNote     String?
+  
+  // Completion tracking
+  completenessScore     Float                         @default(0)
+  missingFields         String[]                      @default([])
+  conversationHistory   AssistantMessage[]
+  
+  // Generated form
+  submittedShipmentId   String?
+  submittedAt           DateTime?
+  
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+  
+  @@index([userId, status])
+}
+
+model AssistantMessage {
+  id                      String                      @id @default(cuid())
+  sessionId               String
+  session                 OrderAssistantSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role                    String                      
+  content                 String
+  suggestedFields         String[]                    @default([])
+  createdAt               DateTime                    @default(now())
+  
+  @@index([sessionId])
 }

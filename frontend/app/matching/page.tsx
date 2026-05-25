@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/contexts/user-context";
-import { dealsApi, matchingApi } from "@/lib/api";
+import { negotiationApi, matchingApi } from "@/lib/api";
 import { onlyDigits, vnd } from "@/lib/utils";
 
 type DealStatus = "PROPOSED" | "COUNTERED" | "ACCEPTED" | "REJECTED";
@@ -125,7 +125,8 @@ export default function MatchingPage() {
     const requestKey = `send-${shipmentId}-${truckId}-${status}`;
     setBusyId(requestKey);
     try {
-      await dealsApi.create({ shipmentId, truckId, proposedPrice: priceValue, status });
+      // Create a deal with negotiation using the new API
+      await negotiationApi.createDeal(shipmentId, priceValue);
       toast.success(status === "COUNTERED" ? "Đã gửi yêu cầu thương lượng." : "Đã gửi yêu cầu ghép hàng.");
       if (selectedId) await loadDetail(selectedId);
       await loadContext();
