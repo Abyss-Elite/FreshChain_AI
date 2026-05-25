@@ -115,19 +115,36 @@ export default function MatchingPage() {
     fallbackPrice?: number,
   ) => {
     const key = priceKey(shipmentId, truckId);
-    const priceValue = Number(priceInput[key] || fallbackPrice);
+    const requestKey = `request-${shipmentId}-${truckId}`; // canonical busy key used in UI
+    let priceValue: number | null = null;
+
+    if (status === "PROPOSED") {
+      // Fast accept flow: use fallbackPrice (shipment.proposedPrice) if provided
+      priceValue = Number(fallbackPrice || priceInput[key] || 0);
+    } else {
+      // COUNTERED requires explicit user input
+      priceValue = Number(priceInput[key] || 0);
+    }
 
     if (!priceValue || priceValue <= 0) {
       toast.error("Vui lòng nhập giá đề xuất hợp lệ.");
       return;
     }
 
-    const requestKey = `send-${shipmentId}-${truckId}-${status}`;
     setBusyId(requestKey);
     try {
-      // Create a deal with negotiation using the new API
-      await negotiationApi.createDeal(shipmentId, priceValue);
+      // Create a deal with negotiation using the new API (include truckId)
+      await negotiationApi.createDeal(shipmentId, truckId, priceValue);
       toast.success(status === "COUNTERED" ? "Đã gửi yêu cầu thương lượng." : "Đã gửi yêu cầu ghép hàng.");
+
+      // Clear only the input for this pair
+      setPriceInput((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+
+      // Refresh detail + context so UI updates automatically
       if (selectedId) await loadDetail(selectedId);
       await loadContext();
     } catch (error: any) {
@@ -137,18 +154,72 @@ export default function MatchingPage() {
     }
   };
 
-  const updateDealStatus = async (dealId: string, status: DealStatus, counterPrice?: number) => {
-    setBusyId(dealId);
+  const handleAcceptDeal = async (deal: any) => {
+    // Accept the latest round offered in this deal
+    const latest = deal.negotiationRounds?.[deal.negotiationRounds.length - 1];
+    if (!latest) {
+      toast.error("Không tìm thấy vòng thương lượng để chấp nhận.");
+      return;
+    }
+
+    const requestKey = `request-${deal.shipmentId || deal.shipment?.id}-${deal.truckId || deal.truck?.id}`;
+    setBusyId(requestKey);
     try {
-      await dealsApi.update(dealId, {
-        status,
-        ...(counterPrice ? { counterPrice } : {}),
-      });
-      toast.success(statusLabel[status]);
+      await negotiationApi.acceptPrice(deal.id, latest.id);
+      toast.success("Đã chấp nhận giá đề xuất.");
       if (selectedId) await loadDetail(selectedId);
       await loadContext();
-    } catch (error: any) {
-      toast.error(error.message || "Không cập nhật được yêu cầu.");
+    } catch (err: any) {
+      toast.error(err.message || "Không thể chấp nhận giá.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleCounterDeal = async (deal: any) => {
+    const key = `counter:${deal.id}`;
+    const value = Number(priceInput[key] || 0);
+    if (!value || value <= 0) {
+      toast.error("Vui lòng nhập giá counter hợp lệ.");
+      return;
+    }
+
+    const latest = deal.negotiationRounds?.[deal.negotiationRounds.length - 1];
+    if (!latest) {
+      toast.error("Không tìm thấy vòng thương lượng để trả giá.");
+      return;
+    }
+
+    const requestKey = `request-${deal.shipmentId || deal.shipment?.id}-${deal.truckId || deal.truck?.id}`;
+    setBusyId(requestKey);
+    try {
+      await negotiationApi.respondToRound(deal.id, latest.id, value);
+      toast.success("Đã gửi phản hồi giá.");
+      // clear counter input
+      setPriceInput((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      if (selectedId) await loadDetail(selectedId);
+      await loadContext();
+    } catch (err: any) {
+      toast.error(err.message || "Không thể gửi phản hồi.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleRejectDeal = async (deal: any) => {
+    const requestKey = `request-${deal.shipmentId || deal.shipment?.id}-${deal.truckId || deal.truck?.id}`;
+    setBusyId(requestKey);
+    try {
+      await negotiationApi.rejectDeal(deal.id);
+      toast.success("Đã từ chối thương lượng.");
+      if (selectedId) await loadDetail(selectedId);
+      await loadContext();
+    } catch (err: any) {
+      toast.error(err.message || "Không thể từ chối.");
     } finally {
       setBusyId(null);
     }
@@ -298,7 +369,11 @@ export default function MatchingPage() {
                 requests={detail.requests || []}
                 userId={user?.id}
                 busyId={busyId}
-                onUpdate={updateDealStatus}
+                priceInput={priceInput}
+                setPriceInput={setPriceInput}
+                onAccept={handleAcceptDeal}
+                onCounter={handleCounterDeal}
+                onReject={handleRejectDeal}
               />
 
               <MatchesSection
@@ -328,13 +403,21 @@ function RequestsSection({
   requests,
   userId,
   busyId,
-  onUpdate,
+  priceInput,
+  setPriceInput,
+  onAccept,
+  onCounter,
+  onReject,
 }: {
   isTruckOwner: boolean;
   requests: any[];
   userId?: string;
   busyId: string | null;
-  onUpdate: (dealId: string, status: DealStatus, counterPrice?: number) => void;
+  priceInput: Record<string, string>;
+  setPriceInput: Dispatch<SetStateAction<Record<string, string>>>;
+  onAccept: (deal: any) => Promise<void>;
+  onCounter: (deal: any) => Promise<void>;
+  onReject: (deal: any) => Promise<void>;
 }) {
   return (
     <Card className="border border-slate-200 bg-white p-4">
@@ -357,6 +440,8 @@ function RequestsSection({
         <div className="space-y-3">
           {requests.map((request) => {
             const canRespond = request.status !== "ACCEPTED" && request.status !== "REJECTED" && request.owner?.id !== userId;
+            const requestKey = `request-${request.shipmentId || request.shipment?.id}-${request.truckId || request.truck?.id}`;
+            const counterKey = `counter:${request.id}`;
             return (
               <Card key={request.id} className="border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -380,7 +465,17 @@ function RequestsSection({
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-md border border-slate-200 bg-white p-3">
                     <p className="text-xs uppercase text-slate-400">Giá đề xuất</p>
-                    <p className="mt-1 font-semibold text-slate-900">{vnd(request.proposedPrice)}</p>
+                    <p className="mt-1 font-semibold text-slate-900">
+                      {vnd(
+                        // Deal model doesn't have top-level proposedPrice; prefer first round's proposedPrice,
+                        // otherwise fall back to latest round's proposedPrice or deal.finalPrice
+                        request.proposedPrice ||
+                          request.negotiationRounds?.[0]?.proposedPrice ||
+                          request.negotiationRounds?.[request.negotiationRounds.length - 1]?.proposedPrice ||
+                          request.finalPrice ||
+                          0
+                      )}
+                    </p>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-white p-3">
                     <p className="text-xs uppercase text-slate-400">Bên gửi</p>
@@ -388,17 +483,50 @@ function RequestsSection({
                   </div>
                 </div>
 
+                {/* negotiation history */}
+                {request.negotiationRounds?.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs uppercase text-slate-400">Lịch sử thương lượng</p>
+                    <div className="space-y-1 text-sm text-slate-700">
+                      {request.negotiationRounds.map((r: any) => (
+                        <div key={r.id} className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs text-slate-500">Vòng {r.roundNumber} — {r.status}</div>
+                            <div className="font-medium">Đề xuất: {vnd(r.proposedPrice)} {r.respondedPrice ? `• Phản hồi: ${vnd(r.respondedPrice)}` : ""}</div>
+                            <div className="text-xs text-slate-400">{new Date(r.createdAt).toLocaleString()}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {canRespond && (
-                  <div className="mt-4 flex flex-wrap justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={() => onUpdate(request.id, "REJECTED")} disabled={busyId === request.id}>
+                  <div className="mt-4 flex flex-wrap justify-end items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => onReject(request)} disabled={busyId === requestKey}>
                       <XCircle size={14} />
                       Từ chối
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => onUpdate(request.id, "COUNTERED", request.proposedPrice)} disabled={busyId === request.id}>
+
+                    <Input
+                      inputMode="numeric"
+                      value={priceInput[counterKey] || ""}
+                      onChange={(event) =>
+                        setPriceInput((prev) => ({
+                          ...prev,
+                          [counterKey]: onlyDigits(event.target.value),
+                        }))
+                      }
+                      placeholder="Giá counter"
+                      className="w-36"
+                    />
+
+                    <Button size="sm" variant="outline" onClick={() => onCounter(request)} disabled={busyId === requestKey}>
                       <MessageSquare size={14} />
-                      Thương lượng
+                      Trả giá
                     </Button>
-                    <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => onUpdate(request.id, "ACCEPTED")} disabled={busyId === request.id}>
+
+                    <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => onAccept(request)} disabled={busyId === requestKey}>
                       <CheckCircle size={14} />
                       Chấp nhận
                     </Button>

@@ -71,10 +71,10 @@ export const trucksApi = {
 // Price Negotiation (NEW ENDPOINTS)
 export const negotiationApi = {
   // Create a deal and start negotiation
-  createDeal: (shipmentId: string, proposedPrice: number) =>
+  createDeal: (shipmentId: string, truckId: string, proposedPrice?: number) =>
     apiCall("/api/negotiation/deals", {
       method: "POST",
-      body: JSON.stringify({ shipmentId, proposedPrice }),
+      body: JSON.stringify({ shipmentId, truckId, proposedPrice }),
     }),
   
   // Get a deal with all negotiation rounds
@@ -82,10 +82,10 @@ export const negotiationApi = {
     apiCall(`/api/negotiation/deals/${dealId}`),
   
   // Respond to negotiation round (counter-offer)
-  respondToRound: (dealId: string, roundId: string, respondedPrice: number) =>
+  respondToRound: (dealId: string, roundId: string, counterPrice: number) =>
     apiCall(`/api/negotiation/deals/${dealId}/rounds/${roundId}/respond`, {
       method: "POST",
-      body: JSON.stringify({ respondedPrice }),
+      body: JSON.stringify({ counterPrice }),
     }),
   
   // Accept a proposed price
