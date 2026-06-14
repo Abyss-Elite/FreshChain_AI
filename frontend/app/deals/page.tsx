@@ -12,37 +12,124 @@ import {
   DollarSign,
   RefreshCw,
 } from "lucide-react";
-import { dealsApi } from "@/lib/api";
+import { dealsApi, negotiationApi } from "@/lib/api";
 
+// =========================
+// TYPES
+// =========================
+type DealStatus = "PROPOSED" | "COUNTERED" | "ACCEPTED" | "REJECTED";
+
+type NegotiationRound = {
+  id: string;
+  proposedPrice?: number | null;
+  respondedPrice?: number | null;
+  proposedBy?: string | null;
+  createdAt?: string;
+  responseMessage?: string | null;
+  status?: string;
+  respondedBy?: string | null;
+  respondedAt?: string | null;
+};
+
+type Deal = {
+  id: string;
+  status: DealStatus | string;
+  finalPrice?: number | null;
+  shipment?: {
+    pickup?: string;
+    dropoff?: string;
+    proposedPrice?: number | null;
+    cargoType?: string;
+  };
+  truck?: {
+    plateNumber?: string;
+  };
+  negotiationRounds?: NegotiationRound[];
+};
+
+// =========================
+// HELPERS
+// =========================
 const getStatusBadge = (status: string) => {
   const configs: Record<
     string,
     { label: string; tone: "green" | "blue" | "amber" | "red" | "slate" }
   > = {
+    PROPOSED: { label: "Đề xuất", tone: "amber" },
+    COUNTERED: { label: "Đang thương lượng", tone: "blue" },
+    ACCEPTED: { label: "Đã chốt", tone: "green" },
+    REJECTED: { label: "Từ chối", tone: "red" },
+
     proposed: { label: "Đề xuất", tone: "amber" },
-    countered: { label: "Phản hồi", tone: "blue" },
+    countered: { label: "Đang thương lượng", tone: "blue" },
     accepted: { label: "Đã chốt", tone: "green" },
     rejected: { label: "Từ chối", tone: "red" },
   };
 
-  const config = configs[status] || { label: status, tone: "slate" };
+  const config = configs[status] || {
+    label: status,
+    tone: "slate",
+  };
+
   return <Badge tone={config.tone}>{config.label}</Badge>;
 };
 
+const formatPrice = (value?: number | null) => {
+  if (!value || value <= 0) return "—";
+  return `₫${value.toLocaleString("vi-VN")}`;
+};
+
+const getInitialShipmentPrice = (deal: Deal): number | null => {
+  return deal.shipment?.proposedPrice || null;
+};
+
+const getCurrentNegotiationPrice = (deal: Deal): number | null => {
+  if (deal.finalPrice && deal.finalPrice > 0) {
+    return deal.finalPrice;
+  }
+
+  const rounds = deal.negotiationRounds || [];
+  if (rounds.length === 0) {
+    return deal.shipment?.proposedPrice || null;
+  }
+
+  const lastRound = rounds[rounds.length - 1];
+  if (lastRound.respondedPrice && lastRound.respondedPrice > 0) {
+    return lastRound.respondedPrice;
+  }
+
+  return lastRound.proposedPrice || null;
+};
+
+const getCurrentPriceOwner = (deal: Deal) => {
+  const rounds = deal.negotiationRounds || [];
+  if (rounds.length === 0) {
+    return "Chủ hàng";
+  }
+
+  const lastRound = rounds[rounds.length - 1];
+  if (lastRound.respondedPrice) {
+    return lastRound.proposedBy === "SHIPPER" ? "Nhà xe" : "Chủ hàng";
+  }
+
+  return lastRound.proposedBy === "SHIPPER" ? "Chủ hàng" : "Nhà xe";
+};
+
 export default function DealsPage() {
-  const [deals, setDeals] = useState<any[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const fetchDeals = () => {
-    setLoading(true);
-    dealsApi
-      .getAll() // 💻 Đã đổi từ .getDeals() sang .getAll() khớp với cấu hình API của bạn
-      .then((data: any) => {
-        setDeals(Array.isArray(data) ? data : data?.deals || []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+  const fetchDeals = async () => {
+    try {
+      setLoading(true);
+      const data = await dealsApi.getAll();
+      setDeals(Array.isArray(data) ? data : data?.deals || []);
+    } catch (error) {
+      console.error("Lỗi tải deals:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -50,28 +137,81 @@ export default function DealsPage() {
   }, []);
 
   const handleUpdateStatus = async (
-    dealId: string,
+    deal: Deal,
     status: "accepted" | "rejected",
   ) => {
-    setActionLoading(dealId);
     try {
-      // 💻 Đã đổi từ .updateDealStatus() sang .update() sử dụng phương thức PATCH
-      await dealsApi.update(dealId, { status });
+      setActionLoading(deal.id);
+      const rounds = deal.negotiationRounds || [];
 
-      setDeals((prevDeals) =>
-        prevDeals.map((deal) =>
-          deal.id === dealId
-            ? {
-                ...deal,
-                status,
-                finalPrice:
-                  status === "accepted" ? deal.carrierPrice : deal.finalPrice,
-              }
-            : deal,
-        ),
-      );
+      if (rounds.length === 0) {
+        throw new Error("Không tìm thấy negotiation round.");
+      }
+
+      const latestRound = rounds[rounds.length - 1];
+      const roundId = latestRound.id;
+
+      if (status === "accepted") {
+        const response = await negotiationApi.acceptPrice(deal.id, roundId);
+        // Lấy giá trị finalPrice thực tế từ Backend trả về (1500000)
+        const backEndFinalPrice =
+          response?.finalPrice ||
+          response?.deal?.finalPrice ||
+          getCurrentNegotiationPrice(deal);
+
+        setDeals((prev) =>
+          prev.map((item) => {
+            if (item.id !== deal.id) return item;
+
+            // Đồng bộ mảng negotiationRounds bằng cách cập nhật round cuối cùng thành "Accepted"
+            const updatedRounds = item.negotiationRounds
+              ? [...item.negotiationRounds]
+              : [];
+            if (updatedRounds.length > 0) {
+              updatedRounds[updatedRounds.length - 1] = {
+                ...updatedRounds[updatedRounds.length - 1],
+                responseMessage: "Accepted",
+                status: "ACCEPTED",
+              };
+            }
+
+            return {
+              ...item,
+              status: "ACCEPTED",
+              finalPrice: backEndFinalPrice,
+              negotiationRounds: updatedRounds, // Đổi UI lập tức không cần F5
+            };
+          }),
+        );
+      } else {
+        await negotiationApi.rejectDeal(deal.id);
+
+        setDeals((prev) =>
+          prev.map((item) => {
+            if (item.id !== deal.id) return item;
+
+            // Đồng bộ mảng negotiationRounds bằng cách cập nhật round cuối cùng thành "Rejected"
+            const updatedRounds = item.negotiationRounds
+              ? [...item.negotiationRounds]
+              : [];
+            if (updatedRounds.length > 0) {
+              updatedRounds[updatedRounds.length - 1] = {
+                ...updatedRounds[updatedRounds.length - 1],
+                responseMessage: "Rejected",
+                status: "REJECTED",
+              };
+            }
+
+            return {
+              ...item,
+              status: "REJECTED",
+              negotiationRounds: updatedRounds, // Đổi UI lập tức không cần F5
+            };
+          }),
+        );
+      }
     } catch (error) {
-      console.error("Lỗi cập nhật trạng thái hợp đồng:", error);
+      console.error("Lỗi cập nhật trạng thái:", error);
     } finally {
       setActionLoading(null);
     }
@@ -81,7 +221,7 @@ export default function DealsPage() {
     return (
       <DashboardShell>
         <div className="flex h-[50vh] items-center justify-center">
-          <p className="text-slate-500 animate-pulse">
+          <p className="animate-pulse text-slate-500">
             Đang tải danh sách thương lượng...
           </p>
         </div>
@@ -91,205 +231,208 @@ export default function DealsPage() {
 
   return (
     <DashboardShell>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-8">
+      {/* HEADER */}
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
             Hợp đồng & Định giá
           </h1>
           <p className="mt-2 text-slate-600">
-            Quản lý và xét duyệt các giao dịch thương lượng giá giữa Chủ hàng
-            (Carrier) và Nhà xe (Shipper).
+            Quản lý các giao dịch thương lượng giá giữa chủ hàng và nhà xe.
           </p>
         </div>
+
         <Button
           variant="outline"
           size="sm"
           onClick={fetchDeals}
-          className="self-start sm:self-center border-slate-200 text-slate-700 hover:bg-slate-50"
+          className="self-start border-slate-200 text-slate-700 hover:bg-slate-50 sm:self-center"
         >
-          <RefreshCw size={14} className="mr-2" /> Làm mới
+          <RefreshCw size={14} className="mr-2" />
+          Làm mới
         </Button>
       </div>
 
-      {/* Deals List */}
-      <div className="space-y-4">
-        {deals.length === 0 ? (
-          <Card className="p-12 text-center border-dashed border-2 border-slate-200 bg-white">
-            <DollarSign className="mx-auto h-12 w-12 text-slate-400 mb-3" />
-            <h3 className="text-sm font-semibold text-slate-900">
-              Không có dữ liệu thương lượng
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Hiện tại không có đề xuất giá nào đang được xử lý trên hệ thống
-              chuỗi cung ứng.
-            </p>
-          </Card>
-        ) : (
-          deals.map((deal) => {
-            const isPending =
-              deal.status !== "accepted" && deal.status !== "rejected";
-            const priceGap = Math.abs(
-              (deal.shipperPrice || 0) - (deal.carrierPrice || 0),
-            );
+      {/* EMPTY */}
+      {deals.length === 0 ? (
+        <Card className="border-2 border-dashed border-slate-200 bg-white p-12 text-center">
+          <DollarSign className="mx-auto mb-3 h-12 w-12 text-slate-400" />
+          <h3 className="text-sm font-semibold text-slate-900">
+            Không có dữ liệu thương lượng
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Hiện chưa có giao dịch nào.
+          </p>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {deals.map((deal) => {
+            const latestRound =
+              deal.negotiationRounds?.[deal.negotiationRounds.length - 1];
+
+            // Tối ưu hóa biến kiểm tra trạng thái: Check cả thuộc tính của Deal lẫn của Round để UI nhạy bén
+            const isAccepted =
+              deal.status === "ACCEPTED" ||
+              latestRound?.responseMessage === "Accepted";
+            const isRejected =
+              deal.status === "REJECTED" ||
+              latestRound?.responseMessage === "Rejected";
+            const isCompleted = isAccepted || isRejected;
+            const isPending = !isCompleted;
+
+            const basePrice = getInitialShipmentPrice(deal);
+            const currentPrice = getCurrentNegotiationPrice(deal);
+            const currentPriceOwner = getCurrentPriceOwner(deal);
+
+            const priceGap =
+              basePrice && currentPrice
+                ? Math.abs(currentPrice - basePrice)
+                : 0;
 
             return (
               <Card
                 key={deal.id}
-                className="p-6 border border-slate-100 shadow-sm bg-white hover:border-slate-200/80 transition-all"
+                className="border border-slate-100 bg-white p-6 shadow-sm transition-all hover:border-slate-200/80"
               >
-                {/* Deal Header */}
-                <div className="flex items-start justify-between mb-5">
-                  <div className="flex items-start gap-3.5 min-w-0">
-                    <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl shrink-0">
+                {/* HEADER */}
+                <div className="mb-5 flex items-start justify-between">
+                  <div className="flex min-w-0 items-start gap-3.5">
+                    <div className="shrink-0 rounded-xl bg-blue-50 p-2.5 text-blue-600">
                       <FileText size={20} />
                     </div>
+
                     <div className="min-w-0">
-                      <p className="font-bold text-slate-900 text-base">
-                        {deal.id}
+                      <p className="text-base font-bold text-slate-900">
+                        {deal.shipment?.cargoType || "Đơn hàng"}
                       </p>
-                      <p className="text-sm text-slate-600 truncate mt-0.5">
-                        {deal.shipment?.pickup ||
-                          deal.shipment ||
-                          "Đơn hàng hệ thống"}{" "}
-                        → {deal.shipment?.dropoff || ""}
+                      <p className="mt-0.5 truncate text-sm text-slate-600">
+                        {deal.shipment?.pickup} → {deal.shipment?.dropoff}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Mã xe phụ trách:{" "}
+                      <p className="mt-1 text-xs text-slate-400">
+                        Xe phụ trách:{" "}
                         <span className="font-medium text-slate-600">
-                          {deal.truck?.licensePlate ||
-                            deal.truckId ||
-                            "Chưa xếp chuyến"}
+                          {deal.truck?.plateNumber || "Chưa xác định"}
                         </span>
                       </p>
                     </div>
                   </div>
-                  <div className="shrink-0">{getStatusBadge(deal.status)}</div>
+
+                  <div className="shrink-0">
+                    {isAccepted
+                      ? getStatusBadge("ACCEPTED")
+                      : isRejected
+                        ? getStatusBadge("REJECTED")
+                        : getStatusBadge("COUNTERED")}
+                  </div>
                 </div>
 
-                {/* Pricing Details */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-5">
-                  {/* Shipper Price */}
-                  <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                      Giá chủ hàng muốn trả
+                {/* PRICE GRID */}
+                <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {/* INITIAL PRICE */}
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Giá chủ hàng đề xuất
                     </p>
                     <p className="text-xl font-extrabold text-slate-900">
-                      ₫{(deal.shipperPrice || 0).toLocaleString("vi-VN")}
+                      {formatPrice(basePrice)}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Đề xuất ban đầu
+                    <p className="mt-1 text-xs text-slate-500">
+                      Giá khởi tạo đơn hàng
                     </p>
                   </div>
 
-                  {/* Carrier Price */}
-                  <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                      Giá nhà xe yêu cầu
-                    </p>
-                    <p className="text-xl font-extrabold text-slate-900">
-                      ₫{(deal.carrierPrice || 0).toLocaleString("vi-VN")}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Bởi:{" "}
-                      <span className="capitalize font-medium text-slate-600">
-                        {deal.proposedBy || "Nhà xe"}
-                      </span>
-                    </p>
-                  </div>
-
-                  {/* Final Price */}
+                  {/* CURRENT PRICE */}
                   <div
-                    className={`p-4 rounded-xl border ${deal.finalPrice ? "bg-emerald-50/40 border-emerald-100" : "bg-slate-50/70 border-slate-100"}`}
+                    className={`rounded-xl border p-4 ${
+                      isAccepted
+                        ? "border-emerald-100 bg-emerald-50/40"
+                        : "border-blue-100 bg-blue-50/40"
+                    }`}
                   >
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                      Chi phí chốt hợp đồng
+                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {isAccepted
+                        ? "Giá chốt cuối cùng"
+                        : "Giá đang thương lượng"}
                     </p>
-                    {deal.finalPrice ? (
-                      <div>
-                        <p className="text-xl font-extrabold text-emerald-600">
-                          ₫{deal.finalPrice.toLocaleString("vi-VN")}
-                        </p>
-                        <p className="text-xs text-emerald-600 mt-1 font-semibold flex items-center gap-1">
-                          ✓ Đã thanh toán / Ký kết
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-xl font-bold text-slate-400">—</p>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Chờ biểu quyết hành động
-                        </p>
-                      </div>
-                    )}
+                    <p
+                      className={`text-xl font-extrabold ${
+                        isAccepted ? "text-emerald-600" : "text-blue-600"
+                      }`}
+                    >
+                      {formatPrice(currentPrice)}
+                    </p>
+                    <p
+                      className={`mt-1 text-xs font-semibold ${
+                        isAccepted ? "text-emerald-600" : "text-blue-600"
+                      }`}
+                    >
+                      {isAccepted
+                        ? "✓ Đã ký kết"
+                        : `💬 Đề xuất hiện tại từ: ${currentPriceOwner}`}
+                    </p>
                   </div>
                 </div>
 
-                {/* Price Gap Info */}
+                {/* GAP */}
                 {isPending && (
-                  <div className="mb-5 p-3 bg-amber-50/60 border border-amber-100 rounded-xl text-xs text-amber-900 flex justify-between items-center">
+                  <div className="mb-5 flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50/60 p-3 text-xs text-amber-900">
                     <p className="font-medium">
-                      ⚠️ Khoảng cách thương lượng:{" "}
-                      <span className="font-bold">
-                        ₫{priceGap.toLocaleString("vi-VN")}
-                      </span>
+                      ⚠️ Chênh lệch thương lượng:{" "}
+                      <span className="font-bold">{formatPrice(priceGap)}</span>
                     </p>
-                    <span className="text-[10px] bg-amber-100/80 border border-amber-200 px-2 py-0.5 rounded-md font-semibold text-amber-800">
-                      {deal.proposedBy === "shipper"
-                        ? "Chủ hàng ép giá"
-                        : "Nhà xe tăng giá"}
+                    <span className="rounded-md border border-amber-200 bg-amber-100/80 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                      Đang đàm phán
                     </span>
                   </div>
                 )}
 
-                {/* Actions */}
-                <div className="flex gap-2.5 justify-end border-t border-slate-100 pt-4">
+                {/* ACTIONS */}
+                <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-4">
                   {isPending ? (
                     <>
                       <Button
                         variant="outline"
                         size="sm"
-                        className="gap-2 text-slate-600 border-slate-200 hover:bg-slate-50"
+                        className="gap-2 border-slate-200 text-slate-600 hover:bg-slate-50"
                         disabled={actionLoading !== null}
-                        onClick={() => handleUpdateStatus(deal.id, "rejected")}
+                        onClick={() => handleUpdateStatus(deal, "rejected")}
                       >
                         <XCircle size={16} />
-                        Bác bỏ đề xuất
+                        Từ chối
                       </Button>
+
                       <Button
                         size="sm"
-                        className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
                         disabled={actionLoading !== null}
-                        onClick={() => handleUpdateStatus(deal.id, "accepted")}
+                        onClick={() => handleUpdateStatus(deal, "accepted")}
                       >
                         <CheckCircle size={16} />
-                        Chấp thuận giá
+                        Chấp thuận
                       </Button>
                     </>
                   ) : (
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="gap-2 text-slate-500 cursor-default hover:bg-transparent"
+                      className="cursor-default gap-2 text-slate-500 hover:bg-transparent"
                     >
                       <CheckCircle
                         size={16}
                         className={
-                          deal.status === "accepted"
-                            ? "text-emerald-500"
-                            : "text-red-400"
+                          isAccepted ? "text-emerald-500" : "text-red-400"
                         }
                       />
                       Thương vụ hoàn tất (
-                      {deal.status === "accepted" ? "Đã duyệt" : "Đã đóng"})
+                      {isAccepted ? "Đã duyệt" : "Đã từ chối"})
                     </Button>
                   )}
                 </div>
               </Card>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </DashboardShell>
   );
 }

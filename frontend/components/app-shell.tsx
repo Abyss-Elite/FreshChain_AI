@@ -36,6 +36,7 @@ const nav = [
   { href: "/deals", label: "Thương lượng", icon: Handshake },
   { href: "/orders", label: "Đơn hàng", icon: Menu },
   { href: "/admin", label: "Quản trị", icon: Users },
+  { href: "/signed-deals", label: "Hợp đồng đã ký", icon: BarChart3 },
 ];
 
 export function AppShell({

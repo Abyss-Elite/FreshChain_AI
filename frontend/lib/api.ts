@@ -88,19 +88,47 @@ export const negotiationApi = {
     }),
 
   // Accept a proposed price
-  acceptPrice: (dealId: string, roundId: string) =>
-    apiCall(`/api/negotiation/deals/${dealId}/rounds/${roundId}/accept`, {
+  acceptPrice: async (dealId: string, roundId: string) => {
+    return apiCall(
+      `/api/negotiation/deals/${dealId}/rounds/${roundId}/accept`,
+      {
+        method: "POST",
+      },
+    );
+  },
+
+  rejectDeal: async (dealId: string) => {
+    return apiCall(`/api/negotiation/deals/${dealId}/reject`, {
       method: "POST",
-    }),
+    });
+  },
 
   // Get all negotiations for a shipment
   getShipmentNegotiations: (shipmentId: string) =>
     apiCall(`/api/negotiation/shipments/${shipmentId}/negotiations`),
 
-  // Reject a negotiation
-  rejectDeal: (dealId: string) =>
-    apiCall(`/api/negotiation/deals/${dealId}/reject`, {
-      method: "POST",
+  /**
+   * ✅ GET /api/negotiation/deals/signed
+   * Lấy danh sách các hợp đồng đã ký kết thành công (status = ACCEPTED)
+   *
+   * Response:
+   * {
+   *   success: boolean,
+   *   count: number,
+   *   total: number,
+   *   deals: Array<{
+   *     id, status, finalPrice,
+   *     shipment: { id, cargoType, weightKg, pickup, dropoff, proposedPrice, owner },
+   *     truck: { id, plateNumber, type, owner },
+   *     negotiationRounds: NegotiationRound[],
+   *     latestRound: NegotiationRound,
+   *     createdAt, updatedAt
+   *   }>
+   * }
+   */
+  getSignedDeals: (limit: number = 20, offset: number = 0) =>
+    apiCall(`/api/negotiation/deals/signed?limit=${limit}&offset=${offset}`, {
+      method: "GET",
     }),
 };
 

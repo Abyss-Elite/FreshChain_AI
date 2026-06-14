@@ -47,15 +47,15 @@ const shipmentSchema = z.object({
 const truckSchema = z.object({
   type: z.string().min(2),
   plateNumber: z.string().min(5),
-  maxCapacityKg: z.coerce.number().int().positive(),
-  remainingKg: z.coerce.number().int().nonnegative(),
-  refrigerated: z.coerce.boolean(),
-  tempMin: z.coerce.number().int().nullable().optional(),
-  tempMax: z.coerce.number().int().nullable().optional(),
+  maxCapacityKg: z.number().int().positive(), // Bỏ coerce nếu nhận JSON chuẩn
+  remainingKg: z.number().int().nonnegative(), // Giữ số 0 không bị lỗi
+  refrigerated: z.boolean(), // Nhận true/false chuẩn từ JSON
+  tempMin: z.number().int().nullable().optional(), // Nhận số 0 an toàn
+  tempMax: z.number().int().nullable().optional(),
   currentRoute: z.string().min(2),
-  currentLat: z.coerce.number().default(11.94),
-  currentLng: z.coerce.number().default(108.45),
-  eta: z.coerce.date(),
+  currentLat: z.number().default(11.94),
+  currentLng: z.number().default(108.45),
+  eta: z.coerce.date(), // Giữ lại coerce cho Date vì cần convert từ String ISO sang Date Object
 });
 
 apiRouter.get("/health", (_req, res) =>
@@ -216,64 +216,6 @@ apiRouter.get(
     });
   }),
 );
-// apiRouter.get(
-//   "/matching-context",
-//   requireAuth,
-//   asyncHandler(async (req, res) => {
-//     const userId = req.user!.id;
-//     const role = req.user!.role;
-
-//     if (role === "SHIPPER") {
-//       const myTrucks = await prisma.truck.findMany({
-//         where: { ownerId: userId },
-//         orderBy: { eta: "asc" },
-//       });
-//       const myShipments = await prisma.shipment.findMany({
-//         where: { status: "MATCHING" },
-//         orderBy: { createdAt: "desc" },
-//       });
-//       const target = myTrucks[0] || null;
-//       const matches = target
-//         ? myShipments
-//             .filter((shipment) => isTruckEligibleForShipment(shipment, target))
-//             .map((shipment) => ({
-//               shipment,
-//               truck: target,
-//               ...scoreTruck(shipment, target, myShipments.filter(s => s.id !== shipment.id && /* check if already matched */)),
-//             }))
-//             .sort((a, b) => b.matchingScore - a.matchingScore)
-//         : [];
-
-//       return res.json({ role, myTrucks, myShipments, target, matches });
-//     }
-
-//     if (role === "CARRIER") {
-//       const myShipments = await prisma.shipment.findMany({
-//         where: { ownerId: userId, status: { in: ["PENDING", "MATCHING"] } },
-//         orderBy: { createdAt: "desc" },
-//       });
-//       const trucks = await prisma.truck.findMany({
-//         where: { active: true },
-//         orderBy: { eta: "asc" },
-//       });
-//       const target = myShipments[0] || null;
-//       const matches = target
-//         ? trucks
-//             .filter((truck) => isTruckEligibleForShipment(target, truck))
-//             .map((truck) => ({
-//               shipment: target,
-//               truck,
-//               ...scoreTruck(target, truck),
-//             }))
-//             .sort((a, b) => b.matchingScore - a.matchingScore)
-//         : [];
-
-//       return res.json({ role, myShipments, target, matches });
-//     }
-
-//     res.json({ role, myTrucks: [], myShipments: [], target: null, matches: [] });
-//   }),
-// );
 
 apiRouter.get(
   "/shipments",

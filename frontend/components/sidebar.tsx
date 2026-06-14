@@ -13,6 +13,7 @@ import {
   Truck,
   Zap,
   AlertCircle,
+  CheckCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -32,7 +33,14 @@ const menuItems = [
     submenu: [{ label: "Danh sách đơn", href: "/shipments" }],
   },
   { label: "Ghép hàng", icon: Zap, href: "/matching" },
+
   { label: "Thương lượng", icon: FileText, href: "/deals" },
+
+  {
+    label: "Hợp đồng đã ký",
+    icon: CheckCircle,
+    href: "/signed-deals",
+  },
 ];
 
 export function Sidebar({
@@ -75,7 +83,7 @@ export function Sidebar({
             FC
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold">FreshChain Logistics</p>
+            <p className="truncate text-sm font-bold">FreshChain AI</p>
             <p className="truncate text-xs text-slate-400">
               Ghép hàng thông minh
             </p>

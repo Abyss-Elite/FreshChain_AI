@@ -194,7 +194,6 @@ export default function MatchingPage() {
     counterPrice?: number,
   ) => {
     const requestKey = `deal-${dealId}-${status}`;
-
     setBusyId(requestKey);
 
     try {
@@ -202,20 +201,24 @@ export default function MatchingPage() {
         (r: any) => r.id === dealId,
       );
 
-      const roundId =
-        currentRequest?.currentRoundId || currentRequest?.latestRound?.id;
+      // =============================================================
+      // 💥 SỬA ĐOẠN NÀY: Lấy roundId chuẩn từ mảng negotiationRounds
+      // =============================================================
+      const rounds = currentRequest?.negotiationRounds || [];
+      const latestRound = rounds[rounds.length - 1]; // Lấy phần tử cuối cùng của mảng
+      const roundId = currentRequest?.currentRoundId || latestRound?.id;
+      // =============================================================
 
       if (status === "ACCEPTED") {
         if (!roundId) {
-          throw new Error("Không tìm thấy roundId.");
+          throw new Error("Không tìm thấy vòng đàm phán (roundId).");
         }
 
         await negotiationApi.acceptPrice(dealId, roundId);
-
         toast.success("Đã chốt giá thành công!");
       } else if (status === "COUNTERED") {
         if (!roundId) {
-          throw new Error("Không tìm thấy roundId.");
+          throw new Error("Không tìm thấy vòng đàm phán (roundId).");
         }
 
         if (!counterPrice || counterPrice <= 0) {
@@ -223,11 +226,9 @@ export default function MatchingPage() {
         }
 
         await negotiationApi.respondToRound(dealId, roundId, counterPrice);
-
         toast.success("Đã gửi phản hồi giá thành công!");
       } else if (status === "REJECTED") {
         await negotiationApi.rejectDeal(dealId);
-
         toast.success("Đã từ chối đàm phán.");
       }
 
@@ -238,11 +239,11 @@ export default function MatchingPage() {
       if (selectedId) {
         await loadDetail(selectedId);
       }
-
       await loadContext();
     } catch (error: any) {
       toast.error(error.message || "Không cập nhật được trạng thái.");
-    } finally {
+    }
+    {
       setBusyId(null);
     }
   };
@@ -535,7 +536,19 @@ function RequestsSection({
                       Giá đề xuất hiện tại
                     </p>
                     <p className="mt-0.5 font-semibold text-sm text-emerald-600">
-                      {vnd(request.proposedPrice)}
+                      {(() => {
+                        const latestRound =
+                          request.negotiationRounds?.[
+                            request.negotiationRounds.length - 1
+                          ];
+
+                        const currentPrice =
+                          request.finalPrice ||
+                          latestRound?.respondedPrice ||
+                          latestRound?.proposedPrice;
+
+                        return currentPrice ? vnd(currentPrice) : "Chưa có giá";
+                      })()}
                     </p>
                   </div>
                   <div className="rounded-md border border-slate-200 bg-white p-2">

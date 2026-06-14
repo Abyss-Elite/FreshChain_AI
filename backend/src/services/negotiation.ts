@@ -256,6 +256,7 @@ export async function acceptProposedPrice(
     where: { id: round.dealId },
     data: {
       finalPrice: round.proposedPrice,
+      status: "ACCEPTED",
     },
   });
 
@@ -328,21 +329,31 @@ export async function rejectNegotiation(dealId: string, reason?: string) {
     throw new Error("Deal not found");
   }
 
-  // Get the latest round
+  // Get latest round
   const latestRound = await prisma.negotiationRound.findFirst({
     where: { dealId },
     orderBy: { createdAt: "desc" },
   });
 
+  // Update latest round
   if (latestRound) {
     await prisma.negotiationRound.update({
       where: { id: latestRound.id },
       data: {
         status: NegotiationRoundStatus.COMPLETED,
         responseMessage: `Rejected${reason ? ": " + reason : ""}`,
+        respondedAt: new Date(),
       },
     });
   }
 
-  return deal;
+  // Update deal status
+  const updatedDeal = await prisma.deal.update({
+    where: { id: dealId },
+    data: {
+      status: "REJECTED",
+    },
+  });
+
+  return updatedDeal;
 }
