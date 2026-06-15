@@ -8,6 +8,10 @@ import {
 } from "../services/matching.js";
 import { asyncHandler, HttpError } from "../utils/http.js";
 import { prisma } from "../utils/prisma.js";
+import {
+  getIOInstance,
+  broadcastDealUpdated,
+} from "../socket/deal-handlers.js";
 
 export const apiRouter = Router();
 
@@ -500,8 +504,8 @@ apiRouter.get(
 /**
  * GET /deals
  * Lấy danh sách deal liên quan đến user hiện tại
- * - Nếu là SHIPPER: Xem các deal do chính mình tạo ra (Chủ xe gửi yêu cầu lên đơn hàng)
- * - Nếu là CARRIER: Xem các deal đánh vào các Shipment do mình sở hữu (Chủ hàng nhận yêu cầu)
+ * - Nếu là SHIPPER: Xem các deal liên quan đến xe của mình HOẶC deal do chính mình tạo ra
+ * - Nếu là CARRIER: Xem các deal đánh vào các Shipment do mình sở hữu
  */
 apiRouter.get(
   "/deals",
@@ -513,14 +517,26 @@ apiRouter.get(
     let deals;
 
     if (userRole === "SHIPPER") {
-      // Tìm các deal do chính Shipper (chủ nhà xe) tạo ra
+      // Tìm các deal liên quan đến xe của Shipper (chủ nhà xe) HOẶC deal do chính mình tạo ra
       deals = await prisma.deal.findMany({
         where: {
-          ownerId: userId,
+          OR: [
+            // Deal liên quan tới xe của mình
+            {
+              truck: {
+                ownerId: userId,
+              },
+            },
+            // Deal do mình tạo ra
+            {
+              ownerId: userId,
+            },
+          ],
         },
         include: {
           shipment: true,
           truck: true,
+          owner: { select: { id: true, name: true } },
           negotiationRounds: { orderBy: { createdAt: "asc" } },
         },
         orderBy: { createdAt: "desc" },
@@ -552,6 +568,17 @@ apiRouter.get(
         },
         orderBy: { createdAt: "desc" },
       });
+    }
+
+    // Broadcast deals list to all connected clients
+    try {
+      const io = getIOInstance();
+      io.to("deals-room").emit("deals:refreshed", {
+        count: deals.length,
+        deals,
+      });
+    } catch (err) {
+      console.error("Error broadcasting deals:refreshed:", err);
     }
 
     res.json(deals);

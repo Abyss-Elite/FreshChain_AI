@@ -1,0 +1,16 @@
+import { Server } from "socket.io";
+
+let ioInstance: Server | null = null;
+
+export function setIOInstance(io: Server) {
+  ioInstance = io;
+}
+
+export function getIOInstance(): Server {
+  if (!ioInstance) {
+    throw new Error("Socket.IO instance not initialized");
+  }
+  return ioInstance;
+}
+
+export { ioInstance };

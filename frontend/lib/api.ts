@@ -84,7 +84,7 @@ export const negotiationApi = {
   respondToRound: (dealId: string, roundId: string, respondedPrice: number) =>
     apiCall(`/api/negotiation/deals/${dealId}/rounds/${roundId}/respond`, {
       method: "POST",
-      body: JSON.stringify({ respondedPrice }),
+      body: JSON.stringify({ counterPrice: respondedPrice }),
     }),
 
   // Accept a proposed price

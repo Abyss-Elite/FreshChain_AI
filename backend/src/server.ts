@@ -9,6 +9,8 @@ import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
 import { assistantRouter } from "./routes/assistant.js";
 import { negotiationRouter } from "./routes/negotiation.js";
+import { setupDealSocketHandlers } from "./socket/deal-handlers.js";
+import { setIOInstance } from "./socket/io-manager.js";
 import { ZodError } from "zod";
 
 dotenv.config();
@@ -16,10 +18,15 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: process.env.FRONTEND_URL || "http://localhost:3000" }
+  cors: { origin: process.env.FRONTEND_URL || "http://localhost:3000" },
 });
 
-app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:3000", credentials: true }));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(rateLimit({ windowMs: 60_000, limit: 160 }));
@@ -29,25 +36,35 @@ app.use("/api", apiRouter);
 app.use("/api/assistant", assistantRouter);
 app.use("/api/negotiation", negotiationRouter);
 
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("Error:", err);
-  
-  if (err instanceof ZodError) {
-    const message = err.issues
-      .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
-      .join("; ");
-    return res.status(400).json({ message, issues: err.issues });
-  }
+app.use(
+  (
+    err: any,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    console.error("Error:", err);
 
-  const status = err.status || 500;
-  const message = err.message || "Unexpected error";
-  res.status(status).json({ message, issues: err.issues });
-});
+    if (err instanceof ZodError) {
+      const message = err.issues
+        .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
+        .join("; ");
+      return res.status(400).json({ message, issues: err.issues });
+    }
 
-io.on("connection", (socket) => {
-  socket.emit("connected", { message: "FreshChain realtime connected" });
-});
+    const status = err.status || 500;
+    const message = err.message || "Unexpected error";
+    res.status(status).json({ message, issues: err.issues });
+  },
+);
 
+// Initialize Socket.IO instance
+setIOInstance(io);
+
+// Setup Socket.IO handlers for deals
+setupDealSocketHandlers(io);
+
+// Tracking simulation (existing)
 setInterval(() => {
   const temp = Number((-2 + Math.random() * 10).toFixed(1));
   io.emit("tracking:update", {
@@ -56,11 +73,11 @@ setInterval(() => {
     lng: 107.45 + Math.random() * 0.2,
     temperature: temp,
     etaMinutes: 118 + Math.round(Math.random() * 12),
-    alert: temp > 4 ? "Nhiet do vuot nguong" : null
+    alert: temp > 4 ? "Nhiet do vuot nguong" : null,
   });
 }, 3500);
 
-const port = Number(process.env.PORT || 4000);
+const port = Number(process.env.PORT || 5000);
 server.listen(port, () => {
   console.log(`FreshChain AI API running on http://localhost:${port}`);
 });

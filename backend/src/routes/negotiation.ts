@@ -12,6 +12,12 @@ import {
   rejectNegotiation,
 } from "../services/negotiation.js";
 import { prisma } from "../utils/prisma.js";
+import {
+  getIOInstance,
+  broadcastDealCreated,
+  broadcastNegotiationRound,
+  broadcastDealStatusChanged,
+} from "../socket/deal-handlers.js";
 
 export const negotiationRouter = Router();
 
@@ -110,6 +116,10 @@ negotiationRouter.post(
       req.user!.id,
       message,
     );
+
+    // Broadcast deal created event
+    broadcastDealCreated(deal);
+    broadcastNegotiationRound(deal.id, firstRound);
 
     res.status(201).json({
       success: true,
@@ -336,6 +346,14 @@ negotiationRouter.post(
       message,
     );
 
+    // Broadcast negotiation updates
+    if (result.nextRound) {
+      broadcastNegotiationRound(dealId, result.nextRound);
+    }
+    if (result.dealAccepted) {
+      broadcastDealStatusChanged(dealId, "ACCEPTED", counterPrice);
+    }
+
     if (result.dealAccepted) {
       res.json({
         success: true,
@@ -378,6 +396,13 @@ negotiationRouter.post(
 
     const result = await acceptProposedPrice(roundId, acceptorRole);
 
+    // Broadcast status change
+    broadcastDealStatusChanged(
+      dealId,
+      "ACCEPTED",
+      result.deal.finalPrice ?? undefined,
+    );
+
     res.json({
       success: true,
       message: `Negotiation completed! Price accepted: ${result.deal.finalPrice?.toLocaleString("vi-VN")} VND`,
@@ -419,6 +444,9 @@ negotiationRouter.post(
     const { reason } = req.body;
 
     await rejectNegotiation(dealId, reason);
+
+    // Broadcast status change
+    broadcastDealStatusChanged(dealId, "REJECTED");
 
     res.json({
       success: true,

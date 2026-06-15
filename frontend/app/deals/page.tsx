@@ -13,6 +13,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { dealsApi, negotiationApi } from "@/lib/api";
+import { useSocket } from "@/lib/hooks/use-socket";
+import { useUser } from "@/contexts/user-context";
 
 // =========================
 // TYPES
@@ -119,6 +121,8 @@ export default function DealsPage() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const socket = useSocket();
+  const { user } = useUser();
 
   const fetchDeals = async () => {
     try {
@@ -132,9 +136,114 @@ export default function DealsPage() {
     }
   };
 
+  // Initial fetch on mount
   useEffect(() => {
     fetchDeals();
   }, []);
+
+  // Setup WebSocket refresh polling
+  useEffect(() => {
+    if (!socket || !user) return;
+
+    // Emit request-refresh immediately
+    const requestRefresh = () => {
+      socket.emit("deals:request-refresh", {
+        userId: user.id,
+        userRole: user.role,
+      });
+    };
+
+    // Initial request
+    requestRefresh();
+
+    // Setup polling interval (refresh every 3 seconds)
+    const interval = setInterval(requestRefresh, 3000);
+
+    return () => clearInterval(interval);
+  }, [socket, user]);
+
+  // Socket.IO Real-time listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    // Subscribe to deals room
+    socket.emit("deals:subscribe");
+
+    // Lắng nghe deal mới được tạo
+    socket.on("deal:created", (newDeal: Deal) => {
+      console.log("Deal mới:", newDeal);
+      setDeals((prev) => [newDeal, ...prev]);
+    });
+
+    // Lắng nghe deal được cập nhật
+    socket.on("deal:updated", (updatedDeal: Deal) => {
+      console.log("Deal được cập nhật:", updatedDeal);
+      setDeals((prev) =>
+        prev.map((deal) => (deal.id === updatedDeal.id ? updatedDeal : deal)),
+      );
+    });
+
+    // Lắng nghe negotiation round mới
+    socket.on(
+      "negotiation:new-round",
+      ({ dealId, round }: { dealId: string; round: NegotiationRound }) => {
+        console.log("Negotiation round mới:", dealId, round);
+        setDeals((prev) =>
+          prev.map((deal) => {
+            if (deal.id !== dealId) return deal;
+            return {
+              ...deal,
+              negotiationRounds: [...(deal.negotiationRounds || []), round],
+            };
+          }),
+        );
+      },
+    );
+
+    // Lắng nghe trạng thái deal đổi
+    socket.on(
+      "deal:status-changed",
+      ({
+        dealId,
+        status,
+        finalPrice,
+      }: {
+        dealId: string;
+        status: string;
+        finalPrice?: number;
+      }) => {
+        console.log("Trạng thái deal đổi:", dealId, status);
+        setDeals((prev) =>
+          prev.map((deal) => {
+            if (deal.id !== dealId) return deal;
+            return {
+              ...deal,
+              status,
+              finalPrice: finalPrice || deal.finalPrice,
+            };
+          }),
+        );
+      },
+    );
+
+    // Lắng nghe deals list được refresh
+    socket.on(
+      "deals:refreshed",
+      ({ count, deals: refreshedDeals }: { count: number; deals: Deal[] }) => {
+        console.log(`Deals refreshed from API: ${count} deals`);
+        setDeals(refreshedDeals);
+      },
+    );
+
+    return () => {
+      socket.emit("deals:unsubscribe");
+      socket.off("deal:created");
+      socket.off("deal:updated");
+      socket.off("negotiation:new-round");
+      socket.off("deal:status-changed");
+      socket.off("deals:refreshed");
+    };
+  }, [socket]);
 
   const handleUpdateStatus = async (
     deal: Deal,
