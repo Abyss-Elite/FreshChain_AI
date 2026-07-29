@@ -11,6 +11,8 @@ import {
   XCircle,
   DollarSign,
   RefreshCw,
+  MessageSquare,
+  Loader2,
 } from "lucide-react";
 import { dealsApi, negotiationApi } from "@/lib/api";
 import { useSocket } from "@/lib/hooks/use-socket";
@@ -123,6 +125,7 @@ export default function DealsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const socket = useSocket();
   const { user } = useUser();
+  const [counterPrice, setCounterPrice] = useState<Record<string, string>>({});
 
   const fetchDeals = async () => {
     try {
@@ -326,6 +329,40 @@ export default function DealsPage() {
     }
   };
 
+  const handleCounterPrice = async (deal: Deal) => {
+    try {
+      setActionLoading(deal.id);
+
+      const rounds = deal.negotiationRounds || [];
+
+      if (rounds.length === 0) {
+        throw new Error("Không tìm thấy negotiation round.");
+      }
+
+      const latestRound = rounds[rounds.length - 1];
+      const roundId = latestRound.id;
+
+      const price = Number(counterPrice[deal.id]);
+
+      if (!price || price <= 0) {
+        throw new Error("Vui lòng nhập giá muốn thương lượng.");
+      }
+
+      await negotiationApi.respondToRound(deal.id, roundId, price);
+
+      setCounterPrice((prev) => ({
+        ...prev,
+        [deal.id]: "",
+      }));
+
+      await fetchDeals();
+    } catch (error: any) {
+      console.error(error);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardShell>
@@ -496,30 +533,62 @@ export default function DealsPage() {
                 )}
 
                 {/* ACTIONS */}
-                <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-4">
+                <div className="border-t border-slate-100 pt-4">
                   {isPending ? (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 border-slate-200 text-slate-600 hover:bg-slate-50"
-                        disabled={actionLoading !== null}
-                        onClick={() => handleUpdateStatus(deal, "rejected")}
-                      >
-                        <XCircle size={16} />
-                        Từ chối
-                      </Button>
+                    <div className="flex flex-col gap-3">
+                      {/* Input phản hồi giá */}
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          placeholder="Nhập giá phản hồi..."
+                          value={counterPrice[deal.id] || ""}
+                          onChange={(e) =>
+                            setCounterPrice((prev) => ({
+                              ...prev,
+                              [deal.id]: e.target.value,
+                            }))
+                          }
+                          className="h-9 flex-1 rounded-md border border-slate-200 px-3 text-sm"
+                        />
 
-                      <Button
-                        size="sm"
-                        className="gap-2 bg-emerald-600 text-white hover:bg-emerald-700"
-                        disabled={actionLoading !== null}
-                        onClick={() => handleUpdateStatus(deal, "accepted")}
-                      >
-                        <CheckCircle size={16} />
-                        Chấp thuận
-                      </Button>
-                    </>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionLoading === `counter-${deal.id}`}
+                          onClick={() => handleCounterPrice(deal)}
+                        >
+                          {actionLoading === `counter-${deal.id}` ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <MessageSquare size={14} className="mr-1" />
+                          )}
+                          Gửi phản hồi giá
+                        </Button>
+                      </div>
+
+                      <div className="flex justify-end gap-2.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 border-slate-200 text-slate-600"
+                          disabled={actionLoading !== null}
+                          onClick={() => handleUpdateStatus(deal, "rejected")}
+                        >
+                          <XCircle size={16} />
+                          Từ chối
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          className="gap-2 bg-emerald-600 text-white"
+                          disabled={actionLoading !== null}
+                          onClick={() => handleUpdateStatus(deal, "accepted")}
+                        >
+                          <CheckCircle size={16} />
+                          Chấp thuận
+                        </Button>
+                      </div>
+                    </div>
                   ) : (
                     <Button
                       variant="ghost"
