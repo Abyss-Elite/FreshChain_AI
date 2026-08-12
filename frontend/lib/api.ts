@@ -224,3 +224,28 @@ export const assistantApi = {
       method: "POST",
     }),
 };
+
+export const copilotApi = {
+  getCurrentSession: () => apiCall("/api/assistant/copilot/sessions/current"),
+  parse: (data: {
+    message: string;
+    sessionId?: string;
+    currentDateTime?: string;
+  }) =>
+    apiCall("/api/assistant/copilot/parse", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  execute: (data: {
+    sessionId: string;
+    approved: boolean;
+  }) =>
+    apiCall("/api/assistant/copilot/execute", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  reset: (sessionId: string) =>
+    apiCall(`/api/assistant/copilot/sessions/${sessionId}/reset`, {
+      method: "POST",
+    }),
+};

@@ -545,7 +545,6 @@ negotiationRouter.get(
                 select: {
                   id: true,
                   name: true,
-                  phoneNumber: true,
                 },
               },
             },
@@ -559,7 +558,6 @@ negotiationRouter.get(
                 select: {
                   id: true,
                   name: true,
-                  phoneNumber: true,
                 },
               },
             },
@@ -568,7 +566,6 @@ negotiationRouter.get(
             select: {
               id: true,
               name: true,
-              phoneNumber: true,
               role: true,
             },
           },

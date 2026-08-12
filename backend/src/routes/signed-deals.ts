@@ -61,7 +61,6 @@ signedDealsRouter.get(
                 select: {
                   id: true,
                   name: true,
-                  phoneNumber: true,
                 },
               },
             },
@@ -75,7 +74,6 @@ signedDealsRouter.get(
                 select: {
                   id: true,
                   name: true,
-                  phoneNumber: true,
                 },
               },
             },
@@ -84,7 +82,6 @@ signedDealsRouter.get(
             select: {
               id: true,
               name: true,
-              phoneNumber: true,
               role: true,
             },
           },

@@ -44,16 +44,17 @@ enum AssistantSessionStatus {
 }
 
 model User {
-  id        String     @id @default(cuid())
-  name      String
-  email     String     @unique
-  password  String
-  role      Role       @default(SHIPPER)
-  company   String?
-  createdAt DateTime   @default(now())
-  shipments Shipment[]
-  trucks    Truck[]
-  deals     Deal[]     @relation("DealOwner")
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  password     String
+  phoneNumber  String?
+  role         Role       @default(SHIPPER)
+  company      String?
+  createdAt    DateTime   @default(now())
+  shipments    Shipment[]
+  trucks       Truck[]
+  deals        Deal[]     @relation("DealOwner")
   assistantSessions OrderAssistantSession[]
 }
 
@@ -175,6 +176,18 @@ model OrderAssistantSession {
   userId                String
   user                  User                          @relation(fields: [userId], references: [id])
   status                AssistantSessionStatus        @default(ACTIVE)
+  copilotIntent         String?
+  copilotStatus         String                        @default("COLLECTING_DATA")
+  copilotApi            String?
+  copilotMethod         String                        @default("POST")
+  copilotData           Json?
+  copilotMissingFields  String[]                      @default([])
+  copilotValidationErrors String[]                    @default([])
+  copilotConfirmationMessage String?
+  copilotApproved       Boolean                       @default(false)
+  copilotSubmittedEntityType String?
+  copilotSubmittedEntityId   String?
+  copilotSubmittedAt    DateTime?
   
   // Order data being collected
   cargoType             String?

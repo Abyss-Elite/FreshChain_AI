@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LogOut,
   Package,
+  Sparkles,
   Truck,
   Zap,
   AlertCircle,
@@ -33,6 +34,7 @@ const menuItems = [
     submenu: [{ label: "Danh sách đơn", href: "/shipments" }],
   },
   { label: "Ghép hàng", icon: Zap, href: "/matching" },
+  { label: "Copilot nhập liệu", icon: Sparkles, href: "/create-order-ai" },
 
   { label: "Thương lượng", icon: FileText, href: "/deals" },
 

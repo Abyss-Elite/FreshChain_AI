@@ -107,6 +107,7 @@ const CITY_ALIASES: Record<string, string> = {
   "quang ngai": "Quảng Ngãi",
   "đà nẵng": "Đà Nẵng",
   "da nang": "Đà Nẵng",
+  hue: "Hu?",
   "nha trang": "Nha Trang",
   "phan thiết": "Phan Thiết",
   "phan thiet": "Phan Thiết",
@@ -118,19 +119,59 @@ const CITY_ALIASES: Record<string, string> = {
   "binh duong": "Bình Dương",
 };
 
+function stripDiacritics(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\u0111/g, "d")
+    .replace(/\u0110/g, "D");
+}
+
+function normalizeLocationKey(value: string) {
+  return stripDiacritics(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeCity(raw: string): string {
-  const key = raw.trim().toLowerCase();
-  if (CITY_ALIASES[key]) return CITY_ALIASES[key];
-  // Capitalize first letter of each word as fallback
+  const parts = raw
+    .split(/[,;/|]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const normalized = normalizeLocationKey(parts[i]);
+    for (const [aliasKey, cityName] of Object.entries(CITY_ALIASES)) {
+      if (normalizeLocationKey(aliasKey) === normalized) {
+        return cityName;
+      }
+    }
+  }
+
+  const key = normalizeLocationKey(raw);
+  for (const [aliasKey, cityName] of Object.entries(CITY_ALIASES)) {
+    if (normalizeLocationKey(aliasKey) === key) {
+      return cityName;
+    }
+  }
+
   return raw
     .trim()
     .replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 }
 
-/** Trích xuất danh sách thành phố từ chuỗi route "A -> B -> C" */
+/** Tr�ch xu?t danh s�ch th�nh ph? t? chu?i route "A -> B -> C" */
 function parseRouteStops(route: string): string[] {
-  return route
-    .split(/->|→|–|-/)
+  const normalizedRoute = stripDiacritics(route)
+    .toLowerCase()
+    .replace(/^(tu|from)\s+/, "")
+    .replace(/\b(di|den|toi|to)\b/g, " -> ");
+
+  return normalizedRoute
+    .split(/->|,|;|-/)
+    .flatMap((part) => part.split(/[,;]/))
     .map((s) => normalizeCity(s.trim()))
     .filter(Boolean);
 }
@@ -140,6 +181,8 @@ function routeDistance(pickup: string, dropoff: string): number {
   const to = normalizeCity(dropoff);
   return cityDistance[from]?.[to] ?? cityDistance[to]?.[from] ?? 420;
 }
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. CORE: isRouteCompatible  (NỚI LỎNG – hỗ trợ trả dọc đường)
@@ -301,11 +344,6 @@ export function isTruckEligibleForShipment(
 
   // 3. Nhiệt độ
   if (!isTemperatureCompatible(shipment, truck)) return false;
-
-  // 4. Thời gian giao hàng
-  const hoursUntilDelivery =
-    (shipment.deliveryTime.getTime() - truck.eta.getTime()) / 36e5;
-  if (hoursUntilDelivery < 0) return false;
 
   return true;
 }

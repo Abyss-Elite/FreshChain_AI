@@ -1,0 +1,7 @@
+{
+  "/trucks/page": "app/trucks/page.js",
+  "/create-order-ai/page": "app/create-order-ai/page.js",
+  "/shipments/page": "app/shipments/page.js",
+  "/matching/page": "app/matching/page.js",
+  "/signed-deals/page": "app/signed-deals/page.js"
+}

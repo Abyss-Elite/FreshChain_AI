@@ -305,8 +305,8 @@ export function AIOrderAssistant() {
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     checked={currentValue === "true"}
-                    onCheckedChange={(checked) =>
-                      setCurrentValue(checked ? "true" : "false")
+                    onChange={(e) =>
+                      setCurrentValue(e.target.checked ? "true" : "false")
                     }
                   />
                   <label className="text-sm cursor-pointer">
