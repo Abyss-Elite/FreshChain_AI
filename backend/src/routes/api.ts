@@ -55,13 +55,13 @@ const shipmentSchema = z.object({
 });
 
 const truckSchema = z.object({
-  type: z.string().min(2),
+  type: z.string().min(2).optional(),
   plateNumber: z.string().min(5),
   maxCapacityKg: z.number().int().positive(), // Bỏ coerce nếu nhận JSON chuẩn
   remainingKg: z.number().int().nonnegative(), // Giữ số 0 không bị lỗi
   refrigerated: z.boolean(), // Nhận true/false chuẩn từ JSON
-  tempMin: z.number().int().nullable().optional(), // Nhận số 0 an toàn
-  tempMax: z.number().int().nullable().optional(),
+  tempMin: z.number().int(),
+  tempMax: z.number().int(),
   currentRoute: z.string().min(2),
   currentLat: z.number().default(11.94),
   currentLng: z.number().default(108.45),
@@ -373,10 +373,7 @@ apiRouter.post(
         "Tải trọng còn trống không được lớn hơn tải trọng tối đa",
       );
     }
-    if (data.refrigerated && (data.tempMin == null || data.tempMax == null)) {
-      throw new HttpError(400, "Xe lạnh cần nhập nhiệt độ tối thiểu và tối đa");
-    }
-    if (data.refrigerated && data.tempMin! > data.tempMax!) {
+    if (data.tempMin > data.tempMax) {
       throw new HttpError(400, "Nhiệt độ tối thiểu không được lớn hơn tối đa");
     }
     const normalizedPlate = normalizePlate(data.plateNumber);
@@ -386,9 +383,10 @@ apiRouter.post(
       truck = await prisma.truck.create({
         data: {
           ...data,
+          type: data.type?.trim() || "Xe tải",
           plateNumber: normalizedPlate,
-          tempMin: data.refrigerated ? data.tempMin : null,
-          tempMax: data.refrigerated ? data.tempMax : null,
+          tempMin: data.tempMin,
+          tempMax: data.tempMax,
           ownerId: req.user!.id,
         },
       });
@@ -865,10 +863,38 @@ apiRouter.patch(
       throw new HttpError(403, "Bạn không có quyền chỉnh sửa thông tin xe này");
     }
 
-    const updatedTruck = await prisma.truck.update({
-      where: { id },
-      data,
-    });
+    if (data.tempMin != null && data.tempMax != null && data.tempMin > data.tempMax) {
+      throw new HttpError(400, "Nhiệt độ tối thiểu không được lớn hơn tối đa");
+    }
+
+    const normalizedPlate =
+      data.plateNumber != null ? normalizePlate(data.plateNumber) : undefined;
+    if (normalizedPlate) {
+      await assertTruckPlateNotDuplicate(normalizedPlate, id);
+    }
+
+    let updatedTruck;
+    try {
+      updatedTruck = await prisma.truck.update({
+        where: { id },
+        data: {
+          ...data,
+          type: data.type?.trim() || undefined,
+          ...(normalizedPlate ? { plateNumber: normalizedPlate } : {}),
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw new HttpError(
+          409,
+          "Biển số xe đã tồn tại trong hệ thống. Vui lòng kiểm tra lại thông tin.",
+        );
+      }
+      throw error;
+    }
 
     res.json(updatedTruck);
   }),

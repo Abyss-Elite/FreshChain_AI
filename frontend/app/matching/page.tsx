@@ -80,10 +80,13 @@ export default function MatchingPage() {
 
   const filteredItems = useMemo(() => {
     const query = normalizeSearchText(sidebarSearch.trim());
+    const queryCompact = query.replace(/[\s\-.]/g, "");
     return items.filter((item: any) => {
+      const plateCompact = normalizeSearchText(item.plateNumber).replace(/[\s\-.]/g, "");
       const matchesQuery = isTruckOwner
         ? !query ||
           normalizeSearchText(item.plateNumber).includes(query) ||
+          (queryCompact && plateCompact.includes(queryCompact)) ||
           normalizeSearchText(item.type).includes(query) ||
           normalizeSearchText(item.currentRoute).includes(query)
         : !query ||

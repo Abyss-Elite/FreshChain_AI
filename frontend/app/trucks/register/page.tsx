@@ -12,9 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trucksApi } from "@/lib/api";
+import { PLATE_NUMBER_EXAMPLE, PLATE_NUMBER_REGEX } from "@/lib/utils";
 import { vietnamLogisticsLocations } from "@/lib/vietnam-locations";
-
-const plateRegex = /^[0-9]{2}[A-Z]-[0-9]{4,5}$/;
 
 export default function RegisterTruckPage() {
   const router = useRouter();
@@ -37,21 +36,22 @@ export default function RegisterTruckPage() {
     const maxCapacityKg = Number(formData.maxCapacityKg);
     const remainingKg = Number(formData.remainingKg || formData.maxCapacityKg);
 
-    if (!plateRegex.test(plateNumber)) return toast.error("Biển số cần đúng dạng VD: 51C-78001");
+    if (!PLATE_NUMBER_REGEX.test(plateNumber)) return toast.error(`Biển số cần đúng dạng VD: ${PLATE_NUMBER_EXAMPLE}`);
     if (!maxCapacityKg || maxCapacityKg <= 0) return toast.error("Tải trọng tối đa phải là số dương");
     if (remainingKg < 0 || remainingKg > maxCapacityKg) return toast.error("Tải trọng còn trống phải nằm trong tổng tải");
     if (!formData.routeOrigin || !formData.routeDestination) return toast.error("Vui lòng chọn điểm đầu và điểm cuối tuyến");
     if (formData.routeOrigin === formData.routeDestination) return toast.error("Điểm đầu và điểm cuối tuyến phải khác nhau");
-    if (formData.refrigerated && Number(formData.tempMin) > Number(formData.tempMax)) return toast.error("Nhiệt độ tối thiểu không được lớn hơn tối đa");
+    if (formData.tempMin === "" || formData.tempMax === "") return toast.error("Vui lòng nhập nhiệt độ tối thiểu và tối đa");
+    if (Number(formData.tempMin) > Number(formData.tempMax)) return toast.error("Nhiệt độ tối thiểu không được lớn hơn tối đa");
 
     const payload = {
       plateNumber,
-      type: formData.type.trim(),
+      type: formData.type.trim() || undefined,
       maxCapacityKg,
       remainingKg,
       refrigerated: formData.refrigerated,
-      tempMin: formData.refrigerated ? Number(formData.tempMin) : null,
-      tempMax: formData.refrigerated ? Number(formData.tempMax) : null,
+      tempMin: Number(formData.tempMin),
+      tempMax: Number(formData.tempMax),
       currentRoute: `${formData.routeOrigin} -> ${formData.routeDestination}`,
       currentLat: 11.94,
       currentLng: 108.45,
@@ -90,11 +90,11 @@ export default function RegisterTruckPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label>Biển số xe *</Label>
-            <Input value={formData.plateNumber} onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })} placeholder="51C-78001" disabled={isSubmitting} />
+            <Input value={formData.plateNumber} onChange={(e) => setFormData({ ...formData, plateNumber: e.target.value })} placeholder={PLATE_NUMBER_EXAMPLE} disabled={isSubmitting} />
           </div>
           <div className="space-y-2">
-            <Label>Loại xe *</Label>
-            <Input value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} placeholder="Xe lạnh 5 tấn" disabled={isSubmitting} />
+            <Label>Loại xe</Label>
+            <Input value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} placeholder="Xe lạnh 5 tấn (không bắt buộc)" disabled={isSubmitting} />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
@@ -111,12 +111,10 @@ export default function RegisterTruckPage() {
             <input type="checkbox" checked={formData.refrigerated} onChange={(e) => setFormData({ ...formData, refrigerated: e.target.checked })} disabled={isSubmitting} />
             Xe có làm lạnh
           </label>
-          {formData.refrigerated && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-2"><Label>Nhiệt độ tối thiểu</Label><Input type="number" value={formData.tempMin} onChange={(e) => setFormData({ ...formData, tempMin: e.target.value })} disabled={isSubmitting} /></div>
-              <div className="space-y-2"><Label>Nhiệt độ tối đa</Label><Input type="number" value={formData.tempMax} onChange={(e) => setFormData({ ...formData, tempMax: e.target.value })} disabled={isSubmitting} /></div>
-            </div>
-          )}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-2"><Label>Nhiệt độ tối thiểu (°C) *</Label><Input type="number" value={formData.tempMin} onChange={(e) => setFormData({ ...formData, tempMin: e.target.value })} disabled={isSubmitting} /></div>
+            <div className="space-y-2"><Label>Nhiệt độ tối đa (°C) *</Label><Input type="number" value={formData.tempMax} onChange={(e) => setFormData({ ...formData, tempMax: e.target.value })} disabled={isSubmitting} /></div>
+          </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">

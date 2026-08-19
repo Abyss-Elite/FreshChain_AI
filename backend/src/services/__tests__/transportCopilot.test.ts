@@ -22,7 +22,7 @@ test("parses the truck sample input with Vietnamese accents and relative time", 
   assert.equal(draft.maxCapacityKg, 5000);
   assert.equal(draft.remainingKg, 3000);
   assert.equal(draft.refrigerated, true);
-  assert.equal(draft.currentRoute, "Đà Nẵng đi Huế");
+  assert.equal(draft.currentRoute, "Đà Nẵng -> Huế");
   assert.equal(draft.tempMin, -18);
   assert.equal(draft.tempMax, -10);
   assert.equal(draft.eta?.toISOString(), "2026-08-11T02:00:00.000Z");
@@ -40,8 +40,8 @@ test("parses compact plate numbers and 'di tu ... den ...' truck routes", () => 
   assert.equal(draft.plateNumber, "92A-123.45");
   assert.equal(draft.maxCapacityKg, 5000);
   assert.equal(draft.remainingKg, 3000);
-  assert.equal(draft.currentRoute, "Đà Nẵng đi Cà Mau");
-  assert.equal(draft.refrigerated, false);
+  assert.equal(draft.currentRoute, "Đà Nẵng -> Cà Mau");
+  assert.equal(draft.refrigerated, true);
   assert.equal(draft.eta, undefined);
 });
 

@@ -5,6 +5,7 @@ import { vietnamLogisticsLocations } from "./orderAssistant.js";
 import {
   assertTruckPlateNotDuplicate,
   assertShipmentNotDuplicate,
+  normalizePlate,
 } from "./duplicateCheck.js";
 
 export function canCreateTruck(role: string) {
@@ -115,10 +116,40 @@ function toSentenceCase(value: string) {
   return `${trimmed.charAt(0).toLocaleUpperCase("vi-VN")}${trimmed.slice(1)}`;
 }
 
+const TRUCK_FIELD_MARKER_PATTERN =
+  /\b(?:bien so|bsx|tai trong|con trong|tuyen|du kien|nhiet do)\b/i;
+
+// Chỉ tìm "loại xe" trong đoạn TRƯỚC từ khóa đầu tiên (biển số, tải trọng, nhiệt độ...)
+// để tránh việc từ "xe" xuất hiện lại sau đó (vd "biển số xe", "nhiệt độ xe") bị hiểu nhầm
+// là phần mở đầu của loại xe và nuốt luôn dữ liệu phía sau.
+function extractTruckTypeFromSpeech(input: string): string | undefined {
+  const normalized = normalizeText(input);
+  const markerMatch = normalized.match(TRUCK_FIELD_MARKER_PATTERN);
+  const prefix = (
+    markerMatch ? normalized.slice(0, markerMatch.index) : normalized
+  ).replace(/[,;.]+\s*$/, "");
+
+  const match =
+    prefix.match(/\b(?:xe|loai xe)\s+(.*)$/i) ||
+    prefix.match(/\b(?:tao|them)\s+(?:xe\s+)?(.*)$/i);
+
+  const captured = match?.[1] ? normalizeWhitespace(match[1]) : "";
+  return captured || undefined;
+}
+
 function normalizeTruckType(value: string | undefined) {
   if (!value) return undefined;
 
-  const normalized = normalizeText(value);
+  // Bỏ các từ đệm chung chung ("1 chiếc xe", "xe") vốn không mô tả loại xe thực sự,
+  // để hệ thống hỏi lại thay vì lưu nhầm các từ đệm này làm loại xe.
+  const stripped = value
+    .replace(/^\s*\d+\s*/i, "")
+    .replace(/^\s*(?:chiec|con)\s+/i, "")
+    .replace(/^\s*xe\s*$/i, "")
+    .trim();
+  if (!stripped) return undefined;
+
+  const normalized = normalizeText(stripped);
   if (normalized.includes("cho trai cay") || normalized.includes("trai cay")) {
     return "Chở trái cây";
   }
@@ -129,7 +160,7 @@ function normalizeTruckType(value: string | undefined) {
     return "Xe thường";
   }
 
-  return toSentenceCase(value);
+  return toSentenceCase(stripped);
 }
 
 export function isTruckTemperatureSensitive(draft: Pick<TruckDraft, "type">) {
@@ -192,12 +223,7 @@ function friendlyFieldLabel(field: string) {
 function buildMissingFieldsMessage(missingFields: string[]) {
   if (missingFields.length === 0) return "Đã nhận thông tin của bạn.";
 
-  const rawLabels = missingFields.map((field) => {
-    if (field === "tempMin" || field === "tempMax") {
-      return "nhiệt độ";
-    }
-    return friendlyFieldLabel(field);
-  });
+  const rawLabels = missingFields.map((field) => friendlyFieldLabel(field));
   const labels = Array.from(new Set(rawLabels));
   if (labels.length === 1) {
     return `Cần thêm ${labels[0]}.`;
@@ -297,6 +323,7 @@ function extractPlateNumberFromSpeech(input: string): string | undefined {
 function extractTruckRouteFromSpeech(input: string): string | undefined {
   const normalized = normalizeText(input);
   const patterns = [
+    /\b(?:giao tu|van chuyen tu)\s+(.+?)\s+\b(?:den|toi)\s+(.+?)(?=,|;|\.|\b(?:nhiet do|du kien|luc|sang mai|chieu mai|toi nay|ngay mai|ngay moi|ngay kia|mai kia)\b|$)/i,
     /\b(?:di tu|tu)\s+(.+?)\s+\b(?:den|toi)\s+(.+?)(?=,|;|\.|\b(?:nhiet do|du kien|luc|sang mai|chieu mai|toi nay|ngay mai|ngay moi|ngay kia|mai kia)\b|$)/i,
     /\b(?:di|di den)\s+(.+?)\s+\bden\s+(.+?)(?=,|;|\.|\b(?:nhiet do|du kien|luc|sang mai|chieu mai|toi nay|ngay mai|ngay moi|ngay kia|mai kia)\b|$)/i,
     /\btuyen\s+(.+?)\s+\b(?:di|den|toi)\s+(.+?)(?=,|;|\.|\b(?:nhiet do|du kien|luc|sang mai|chieu mai|toi nay|ngay mai|ngay moi|ngay kia|mai kia)\b|$)/i,
@@ -314,7 +341,7 @@ function extractTruckRouteFromSpeech(input: string): string | undefined {
       const destination = normalizeLocationToCity(match[2]);
       if (origin === originSource || destination === destinationSource) continue;
       if (!origin || !destination) continue;
-      return `${origin} đi ${destination}`;
+      return `${origin} -> ${destination}`;
     }
 
     const route = formatTruckRouteFromText(match[1]);
@@ -331,7 +358,7 @@ function formatTruckRouteFromText(routeText: string) {
     const origin = normalizeLocationToCity(connectorMatch[1]);
     const destination = normalizeLocationToCity(connectorMatch[2]);
     if (origin && destination) {
-      return `${origin} đi ${destination}`;
+      return `${origin} -> ${destination}`;
     }
   }
 
@@ -395,15 +422,27 @@ function parseBoolean(
   negativeKeywords: string[],
 ) {
   const normalized = normalizeText(text);
-  const hasPositive = positiveKeywords.some((keyword) =>
+  const matchedPositive = positiveKeywords.filter((keyword) =>
     normalized.includes(keyword),
   );
-  const hasNegative = negativeKeywords.some((keyword) =>
+  const matchedNegative = negativeKeywords.filter((keyword) =>
     normalized.includes(keyword),
   );
 
-  if (hasPositive && !hasNegative) return true;
-  if (hasNegative && !hasPositive) return false;
+  if (matchedPositive.length > 0 && matchedNegative.length > 0) {
+    // Cụm phủ định thường được tạo bằng cách thêm "không" trước cụm khẳng định
+    // (vd "không có làm lạnh" chứa sẵn "có làm lạnh"), nên khớp cả 2 danh sách.
+    // Nếu MỌI từ khóa khẳng định khớp được chỉ là do nằm trong cụm phủ định,
+    // đây không phải mâu thuẫn thật sự — ưu tiên phủ định.
+    const positiveOnlyFromNegation = matchedPositive.every((pos) =>
+      matchedNegative.some((neg) => neg.includes(pos)),
+    );
+    if (positiveOnlyFromNegation) return false;
+    return undefined;
+  }
+
+  if (matchedPositive.length > 0) return true;
+  if (matchedNegative.length > 0) return false;
   return undefined;
 }
 
@@ -748,10 +787,7 @@ export function inferTruckDraftNormalized(
   const draft: TruckDraft = { ...previous };
   const normalized = normalizeText(input);
 
-  const type = extractFirstMatch(input, [
-    /\b(?:xe|loai xe)\s+(.+?)(?=\b(?:bien so|bsx|tai trong|con trong|tuyen|du kien|nhiet do)\b|,|$)/i,
-    /\b(?:tao|them)\s+(?:xe\s+)?(.+?)(?=\b(?:bien so|bsx|tai trong|con trong|tuyen|du kien|nhiet do)\b|,|$)/i,
-  ]);
+  const type = extractTruckTypeFromSpeech(input);
   const plateNumber = extractPlateNumberFromSpeech(input);
   const maxCapacity = extractFirstMatch(input, [
     /\btai trong(?: toi da)?\s*[:\-]?\s*([0-9.,]+\s*(?:tan|ton|kg)?)\b/i,
@@ -763,8 +799,16 @@ export function inferTruckDraftNormalized(
   ]);
   const route = extractTruckRouteFromSpeech(input);
   const etaRaw = extractFirstMatch(input, [
+    /\bthoi gian xuat phat\s+(.+?)(?=\.|,|;|$)/i,
+    /\bthoi gian bat dau\s+(.+?)(?=\.|,|;|$)/i,
     /\bdu kien den\s+(.+?)(?=\.|,|;|$)/i,
     /\bdu kien\s+(.+?)(?=\.|,|;|$)/i,
+    /\bxuat phat luc\s+(.+?)(?=\.|,|;|$)/i,
+    /\bkhoi hanh luc\s+(.+?)(?=\.|,|;|$)/i,
+    /\bbat dau luc\s+(.+?)(?=\.|,|;|$)/i,
+    /\bxuat phat\s+(.+?)(?=\.|,|;|$)/i,
+    /\bkhoi hanh\s+(.+?)(?=\.|,|;|$)/i,
+    /\bbat dau\s+(.+?)(?=\.|,|;|$)/i,
     /\bden luc\s+(.+?)(?=\.|,|;|$)/i,
     /\bluc\s+(.+?)(?=\.|,|;|$)/i,
   ]);
@@ -794,7 +838,7 @@ export function inferTruckDraftNormalized(
     ["khong lanh", "khong co lam lanh", "khong dong lanh", "xe thuong"],
   );
   if (refrigerated !== undefined) draft.refrigerated = refrigerated;
-  else if (draft.refrigerated === undefined) draft.refrigerated = false;
+  else if (draft.refrigerated === undefined) draft.refrigerated = true;
   if (route) draft.currentRoute = route;
   if (etaRaw) {
     const parsed = parseRelativeDateTime(etaRaw, currentDateTime);
@@ -830,7 +874,7 @@ export function inferShipmentDraftNormalized(
   const normalized = normalizeText(input);
 
   const cargoType = extractFirstMatchOriginal(input, [
-    /\b(?:hang hoa\s+gom|gom|hang)\s+(.+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
+    /\b(?:hang hoa\s+gom|hang hoa|gom|hang)\s+(.+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
     /([A-Za-z\u00C0-\u1EF90-9\s\-/]+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
   ]);
   const pickup = extractFirstMatch(input, [
@@ -997,8 +1041,16 @@ function inferTruckDraft(
     /\btuyen\s+(.+?)(?=,|;|\.|\bnhiet do\b|\bdu kien\b|\bluc\b|$)/i,
   ]);
   const etaRaw = extractFirstMatch(input, [
+    /\bthoi gian xuat phat\s+(.+?)(?=\.|,|;|$)/i,
+    /\bthoi gian bat dau\s+(.+?)(?=\.|,|;|$)/i,
     /\bdu kien den\s+(.+?)(?=\.|,|;|$)/i,
     /\bdu kien\s+(.+?)(?=\.|,|;|$)/i,
+    /\bxuat phat luc\s+(.+?)(?=\.|,|;|$)/i,
+    /\bkhoi hanh luc\s+(.+?)(?=\.|,|;|$)/i,
+    /\bbat dau luc\s+(.+?)(?=\.|,|;|$)/i,
+    /\bxuat phat\s+(.+?)(?=\.|,|;|$)/i,
+    /\bkhoi hanh\s+(.+?)(?=\.|,|;|$)/i,
+    /\bbat dau\s+(.+?)(?=\.|,|;|$)/i,
     /\bluc\s+(.+?)(?=\.|,|;|$)/i,
   ]);
   const tempRangeText = extractFirstMatch(input, [
@@ -1116,7 +1168,7 @@ function inferShipmentDraft(
   const normalized = normalizeText(input);
 
   const cargoType = extractFirstMatch(input, [
-    /\b(?:hang hoa\s+gom|gom|hang)\s+(.+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
+    /\b(?:hang hoa\s+gom|hang hoa|gom|hang)\s+(.+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
     /([A-Za-z\u00C0-\u1EF90-9\s\-/]+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
   ]);
   const pickup = extractFirstMatch(input, [
@@ -1227,9 +1279,7 @@ function isDefined<T>(value: T | undefined | null): value is T {
 function validateTruckDraft(draft: TruckDraft) {
   const missingFields: string[] = [];
   const validationErrors: string[] = [];
-  const temperatureSensitive = isTruckTemperatureSensitive(draft);
 
-  if (!draft.type || draft.type.trim().length < 2) missingFields.push("type");
   if (!draft.plateNumber || draft.plateNumber.trim().length < 5)
     missingFields.push("plateNumber");
   if (!isDefined(draft.maxCapacityKg)) missingFields.push("maxCapacityKg");
@@ -1252,23 +1302,14 @@ function validateTruckDraft(draft: TruckDraft) {
   ) {
     validationErrors.push("remainingKg không được lớn hơn maxCapacityKg");
   }
-  if ((draft.refrigerated || temperatureSensitive) && !isDefined(draft.tempMin)) {
-    missingFields.push("tempMin");
-  }
-  if ((draft.refrigerated || temperatureSensitive) && !isDefined(draft.tempMax)) {
-    missingFields.push("tempMax");
-  }
+  if (!isDefined(draft.tempMin)) missingFields.push("tempMin");
+  if (!isDefined(draft.tempMax)) missingFields.push("tempMax");
   if (
-    (draft.refrigerated || temperatureSensitive) &&
     isDefined(draft.tempMin) &&
     isDefined(draft.tempMax) &&
     draft.tempMin > draft.tempMax
   ) {
     validationErrors.push("tempMin không được lớn hơn tempMax");
-  }
-  if (!draft.refrigerated && !temperatureSensitive) {
-    draft.tempMin = draft.tempMin ?? null;
-    draft.tempMax = draft.tempMax ?? null;
   }
 
   return { missingFields, validationErrors };
@@ -1375,7 +1416,7 @@ function confirmationForIntent(
   preview: Record<string, any>,
 ) {
   if (intent === "CREATE_TRUCK") {
-    return `Thông tin xe sắp được tạo:\n\n* Loại xe: ${preview.type}\n* Biển số: ${preview.plateNumber}\n* Tải trọng tối đa: ${preview.maxCapacityKg} kg\n* Tải trọng còn trống: ${preview.remainingKg} kg\n* Xe lạnh: ${formatTruckBoolean(preview.refrigerated)}\n* Nhiệt độ: ${formatTruckTemperature(preview.tempMin)} đến ${formatTruckTemperature(preview.tempMax)} °C\n* Tuyến hiện tại: ${preview.currentRoute}\n* Thời gian dự kiến đến: ${formatVietnamDateTimeDisplay(preview.eta)}\n\nBạn có xác nhận tạo xe này không?`;
+    return `Thông tin xe sắp được tạo:\n\n* Loại xe: ${preview.type ?? "—"}\n* Biển số: ${preview.plateNumber}\n* Tải trọng tối đa: ${preview.maxCapacityKg} kg\n* Tải trọng còn trống: ${preview.remainingKg} kg\n* Xe lạnh: ${formatTruckBoolean(preview.refrigerated)}\n* Nhiệt độ: ${formatTruckTemperature(preview.tempMin)} đến ${formatTruckTemperature(preview.tempMax)} °C\n* Tuyến hiện tại: ${preview.currentRoute}\n* Thời gian dự kiến đến: ${formatVietnamDateTimeDisplay(preview.eta)}\n\nBạn có xác nhận tạo xe này không?`;
   }
 
   if (intent === "CREATE_SHIPMENT") {
@@ -1645,12 +1686,6 @@ export async function parseCopilotMessage(args: {
         : validationErrors.length > 0
           ? "VALIDATING"
           : "AWAITING_APPROVAL";
-    if (
-      (nextData.refrigerated || isTruckTemperatureSensitive(nextData as TruckDraft)) &&
-      (!isDefined(nextData.tempMin) || !isDefined(nextData.tempMax))
-    ) {
-      status = "COLLECTING_DATA";
-    }
     if (status === "AWAITING_APPROVAL") {
       confirmationMessage = confirmationForIntent(
         intent,
@@ -1729,7 +1764,6 @@ function makeErrorList(
   const errors: string[] = [...context.validationErrors];
   if (intent === "CREATE_TRUCK") {
     const truck = draft as TruckDraft;
-    if (!truck.type || truck.type.trim().length < 2) errors.push("type");
     if (!truck.plateNumber || truck.plateNumber.trim().length < 5)
       errors.push("plateNumber");
     if (truck.maxCapacityKg == null || truck.maxCapacityKg <= 0)
@@ -1741,10 +1775,9 @@ function makeErrorList(
         errors.push("remainingKg > maxCapacityKg");
       }
     }
-    const sensitive = isTruckTemperatureSensitive(truck);
-    if ((truck.refrigerated || sensitive) && truck.tempMin == null) errors.push("tempMin");
-    if ((truck.refrigerated || sensitive) && truck.tempMax == null) errors.push("tempMax");
-    if ((truck.refrigerated || sensitive) && truck.tempMin != null && truck.tempMax != null) {
+    if (truck.tempMin == null) errors.push("tempMin");
+    if (truck.tempMax == null) errors.push("tempMax");
+    if (truck.tempMin != null && truck.tempMax != null) {
       if (truck.tempMin > truck.tempMax) errors.push("tempMin > tempMax");
     }
     if (!truck.currentRoute || truck.currentRoute.trim().length < 2)
@@ -1851,7 +1884,7 @@ export async function executeCopilotSession(args: {
 
   if (intent === "CREATE_TRUCK") {
     const truckDraft = draft as TruckDraft;
-    const normalizedPlate = normalizePlateNumber(truckDraft.plateNumber!)!;
+    const normalizedPlate = normalizePlate(truckDraft.plateNumber!);
 
     try {
       await assertTruckPlateNotDuplicate(normalizedPlate);
@@ -1871,13 +1904,13 @@ export async function executeCopilotSession(args: {
       truck = await prisma.truck.create({
         data: {
           ownerId: args.userId,
-          type: truckDraft.type!.trim(),
+          type: truckDraft.type?.trim() || "Xe tải",
           plateNumber: normalizedPlate,
           maxCapacityKg: truckDraft.maxCapacityKg!,
           remainingKg: truckDraft.remainingKg!,
           refrigerated: Boolean(truckDraft.refrigerated),
-          tempMin: (truckDraft.refrigerated || isTruckTemperatureSensitive(truckDraft)) ? (truckDraft.tempMin ?? null) : null,
-          tempMax: (truckDraft.refrigerated || isTruckTemperatureSensitive(truckDraft)) ? (truckDraft.tempMax ?? null) : null,
+          tempMin: truckDraft.tempMin ?? null,
+          tempMax: truckDraft.tempMax ?? null,
           currentRoute: truckDraft.currentRoute!.trim(),
           currentLat: truckDraft.currentLat ?? 11.94,
           currentLng: truckDraft.currentLng ?? 108.45,

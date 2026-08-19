@@ -11,7 +11,8 @@ import {
   CardTitle,
 } from "./ui/card";
 import { copilotApi } from "@/lib/api";
-import { Loader2, Mic, MicOff, RotateCcw, Sparkles } from "lucide-react";
+import { Check, Copy, Loader2, Mic, MicOff, RotateCcw, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 type CopilotIntent = "CREATE_TRUCK" | "CREATE_SHIPMENT" | "UNKNOWN";
 type CopilotStatus =
@@ -397,6 +398,7 @@ export function TransportCopilot() {
     "Nhập yêu cầu tự nhiên để tạo xe chở hàng hoặc hàng hóa.",
   );
   const [history, setHistory] = useState<ChatItem[]>([]);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -475,6 +477,19 @@ export function TransportCopilot() {
 
   const appendMessage = (role: ChatItem["role"], content: string) => {
     setHistory((prev) => [...prev, { role, content }]);
+  };
+
+  const handleCopyMessage = async (content: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIndex(index);
+      toast.success("Đã sao chép nội dung tin nhắn");
+      setTimeout(() => {
+        setCopiedIndex((prev) => (prev === index ? null : prev));
+      }, 1500);
+    } catch {
+      toast.error("Không thể sao chép. Vui lòng thử lại.");
+    }
   };
 
   const stopDictation = () => {
@@ -795,13 +810,30 @@ export function TransportCopilot() {
                 history.map((item, index) => (
                   <div
                     key={`${item.role}-${index}`}
-                    className={`rounded-2xl px-4 py-3 text-sm leading-6 ${
-                      item.role === "user"
-                        ? "ml-10 bg-indigo-600 text-white"
-                        : "mr-10 border border-slate-200 bg-slate-50 text-slate-800"
-                    }`}
+                    className={`group relative ${item.role === "user" ? "ml-10" : "mr-10"}`}
                   >
-                    {item.content}
+                    <div
+                      className={`whitespace-pre-wrap rounded-2xl px-4 py-3 pr-9 text-sm leading-6 ${
+                        item.role === "user"
+                          ? "bg-indigo-600 text-white"
+                          : "border border-slate-200 bg-slate-50 text-slate-800"
+                      }`}
+                    >
+                      {item.content}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyMessage(item.content, index)}
+                      title="Sao chép nội dung tin nhắn"
+                      aria-label="Sao chép nội dung tin nhắn"
+                      className={`absolute right-2 top-2 rounded-md p-1.5 opacity-60 transition hover:opacity-100 focus-visible:opacity-100 ${
+                        item.role === "user"
+                          ? "text-indigo-100 hover:bg-indigo-500 hover:text-white"
+                          : "text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                      }`}
+                    >
+                      {copiedIndex === index ? <Check size={14} /> : <Copy size={14} />}
+                    </button>
                   </div>
                 ))
               )}

@@ -1,17 +1,35 @@
 import { prisma } from "../utils/prisma.js";
 import { HttpError } from "../utils/http.js";
 
+// Chuẩn hóa biển số về một định dạng duy nhất (VD: "43A-780.01" cho seri 5 số,
+// "43A-7800" cho seri 4 số) để copilot và form truyền thống luôn lưu cùng 1 kiểu,
+// bất kể người dùng nhập có gạch ngang/dấu chấm hay không.
 export function normalizePlate(value: string) {
-  return value.replace(/\s+/g, "").toUpperCase();
+  const upper = value.replace(/\s+/g, "").toUpperCase();
+
+  const fiveDigit = upper.match(/^(\d{2}[A-Z])-?(\d{3})\.?(\d{2})$/);
+  if (fiveDigit) {
+    return `${fiveDigit[1]}-${fiveDigit[2]}.${fiveDigit[3]}`;
+  }
+
+  const fourDigit = upper.match(/^(\d{2}[A-Z])-?(\d{4})$/);
+  if (fourDigit) {
+    return `${fourDigit[1]}-${fourDigit[2]}`;
+  }
+
+  return upper;
 }
 
-export async function assertTruckPlateNotDuplicate(plateNumber: string) {
+export async function assertTruckPlateNotDuplicate(
+  plateNumber: string,
+  excludeId?: string,
+) {
   const normalizedPlate = normalizePlate(plateNumber);
   const existing = await prisma.truck.findUnique({
     where: { plateNumber: normalizedPlate },
     select: { id: true },
   });
-  if (existing) {
+  if (existing && existing.id !== excludeId) {
     throw new HttpError(
       409,
       "Biển số xe đã tồn tại trong hệ thống. Vui lòng kiểm tra lại thông tin.",

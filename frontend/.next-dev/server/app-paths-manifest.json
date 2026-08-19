@@ -1,7 +1,7 @@
 {
-  "/dashboard/page": "app/dashboard/page.js",
-  "/shipments/page": "app/shipments/page.js",
+  "/page": "app/page.js",
+  "/matching/page": "app/matching/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js",
   "/trucks/page": "app/trucks/page.js",
-  "/trucks/register/page": "app/trucks/register/page.js",
   "/create-order-ai/page": "app/create-order-ai/page.js"
 }

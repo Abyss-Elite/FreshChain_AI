@@ -179,9 +179,11 @@ export function evaluateCompatibility(
   }
 
   if (truck.refrigerated && truck.tempMin != null && truck.tempMax != null) {
+    // Xe đạt yêu cầu khi nhiệt độ thực tế của xe [tempMin, tempMax] nằm TRONG
+    // khoảng nhiệt độ mà lô hàng chấp nhận được [requiredTempMin, requiredTempMax].
     const supported =
-      truck.tempMin <= cargo.requiredTempMin &&
-      truck.tempMax >= cargo.requiredTempMax;
+      cargo.requiredTempMin <= truck.tempMin &&
+      cargo.requiredTempMax >= truck.tempMax;
     if (!supported) {
       warnings.push(
         `Khoảng nhiệt độ ${cargo.requiredTempMin}°C - ${cargo.requiredTempMax}°C không phù hợp với xe`,

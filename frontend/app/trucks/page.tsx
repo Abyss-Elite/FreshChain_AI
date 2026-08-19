@@ -15,7 +15,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { trucksApi } from "@/lib/api";
-import { normalizeSearchText } from "@/lib/utils";
+import { PLATE_NUMBER_EXAMPLE, PLATE_NUMBER_REGEX, normalizeSearchText, splitTruckRoute } from "@/lib/utils";
 import { vietnamLogisticsLocations } from "@/lib/vietnam-locations";
 
 const PAGE_SIZE = 6;
@@ -48,18 +48,11 @@ const emptyForm: TruckForm = {
   active: true,
 };
 
-const plateRegex = /^[0-9]{2}[A-Z]-[0-9]{4,5}$/;
-
 function toLocalInput(date?: string) {
   if (!date) return "";
   const value = new Date(date);
   if (Number.isNaN(value.getTime())) return "";
   return new Date(value.getTime() - value.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-}
-
-function splitRoute(route?: string) {
-  const [origin = "", destination = ""] = (route || "").split(" -> ");
-  return { origin, destination };
 }
 
 export default function TrucksPage() {
@@ -148,7 +141,7 @@ function TrucksContent() {
   };
 
   const openEdit = (truck: any) => {
-    const route = splitRoute(truck.currentRoute);
+    const route = splitTruckRoute(truck.currentRoute);
     setEditing(truck);
     setForm({
       plateNumber: truck.plateNumber || "",
@@ -170,7 +163,7 @@ function TrucksContent() {
     const plate = form.plateNumber.trim().toUpperCase();
     const max = Number(form.maxCapacityKg);
     const remaining = Number(form.remainingKg);
-    if (!plateRegex.test(plate)) return "Biển số cần đúng dạng VD: 51C-78001";
+    if (!PLATE_NUMBER_REGEX.test(plate)) return `Biển số cần đúng dạng VD: ${PLATE_NUMBER_EXAMPLE}`;
     if (!max || max <= 0) return "Tải trọng tối đa phải là số dương";
     if (remaining < 0 || remaining > max) return "Tải trọng còn trống phải nằm trong tổng tải";
     if (!form.routeOrigin || !form.routeDestination) return "Vui lòng chọn điểm đầu và điểm cuối tuyến";
@@ -355,7 +348,7 @@ function TrucksContent() {
             <SheetDescription>Cập nhật tải trọng và tuyến xe để tìm đơn hàng đang chờ ghép.</SheetDescription>
           </SheetHeader>
           <form id="truck-form" onSubmit={submit} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-            <div className="space-y-2"><Label>Biển số</Label><Input value={form.plateNumber} onChange={(e) => setForm({ ...form, plateNumber: e.target.value })} placeholder="51C-78001" /></div>
+            <div className="space-y-2"><Label>Biển số</Label><Input value={form.plateNumber} onChange={(e) => setForm({ ...form, plateNumber: e.target.value })} placeholder={PLATE_NUMBER_EXAMPLE} /></div>
             <div className="space-y-2"><Label>Loại xe</Label><Input value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder="Xe lạnh 5 tấn" /></div>
             <div className="space-y-2"><Label>Tải trọng tối đa (kg)</Label><Input inputMode="numeric" value={form.maxCapacityKg} onChange={(e) => setForm({ ...form, maxCapacityKg: e.target.value.replace(/\D/g, "") })} /></div>
             <div className="space-y-2"><Label>Tải trọng còn trống (kg)</Label><Input inputMode="numeric" value={form.remainingKg} onChange={(e) => setForm({ ...form, remainingKg: e.target.value.replace(/\D/g, "") })} /></div>

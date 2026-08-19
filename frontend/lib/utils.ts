@@ -33,3 +33,22 @@ export function normalizeSearchText(value?: string | null) {
     .replace(/Đ/g, "D")
     .toLowerCase();
 }
+
+/**
+ * Chấp nhận biển số dạng seri 4 số ("51C-7800") hoặc 5 số, có hoặc không có
+ * dấu chấm nhóm số ("51C-78001" / "51C-780.01") — dùng chung cho form đăng ký,
+ * sửa nhanh và trang sửa xe, để khớp với định dạng Copilot tạo ra (luôn có dấu chấm).
+ */
+export const PLATE_NUMBER_REGEX =
+  /^[0-9]{2}[A-Z]-[0-9]{4}$|^[0-9]{2}[A-Z]-[0-9]{3}\.?[0-9]{2}$/;
+
+/** Ví dụ hiển thị cho placeholder/thông báo lỗi biển số. */
+export const PLATE_NUMBER_EXAMPLE = "51C-780.01";
+
+/** Tuyến xe có thể được lưu dạng "A -> B" (form) hoặc legacy "A đi B" (Copilot cũ). */
+export function splitTruckRoute(route?: string) {
+  const [origin = "", destination = ""] = (route || "")
+    .split(/\s*->\s*|\s+đi\s+/)
+    .map((part) => part.trim());
+  return { origin, destination };
+}
