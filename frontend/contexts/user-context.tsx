@@ -19,6 +19,7 @@ export interface User {
 interface UserContextType {
   user: User | null;
   loading: boolean;
+  login: (user: User, token: string) => void;
   logout: () => void;
 }
 
@@ -67,15 +68,24 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
+  const login = (nextUser: User, token: string) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("token", token);
+      localStorage.setItem("user", JSON.stringify(nextUser));
+    }
+    setUser(nextUser);
+  };
+
   const logout = () => {
     if (typeof window !== "undefined") {
       localStorage.removeItem("token");
+      localStorage.removeItem("user");
     }
     setUser(null);
   };
 
   return (
-    <UserContext.Provider value={{ user, loading, logout }}>
+    <UserContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </UserContext.Provider>
   );

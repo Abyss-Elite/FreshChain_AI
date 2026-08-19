@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Edit2, Loader2, Plus, Trash2, Truck } from "lucide-react";
+import { Edit2, Loader2, Plus, Search, Trash2, Truck } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,14 @@ import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { trucksApi } from "@/lib/api";
+import { normalizeSearchText } from "@/lib/utils";
 import { vietnamLogisticsLocations } from "@/lib/vietnam-locations";
+
+const PAGE_SIZE = 6;
 
 type TruckForm = {
   plateNumber: string;
@@ -67,6 +71,10 @@ export default function TrucksPage() {
   const [form, setForm] = useState<TruckForm>(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [coolingFilter, setCoolingFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   const loadTrucks = async () => {
     try {
@@ -82,6 +90,34 @@ export default function TrucksPage() {
   useEffect(() => {
     loadTrucks();
   }, []);
+
+  const filteredTrucks = useMemo(() => {
+    const query = normalizeSearchText(search.trim());
+    const queryCompact = query.replace(/[\s\-.]/g, "");
+    return trucks.filter((truck) => {
+      const plateCompact = normalizeSearchText(truck.plateNumber).replace(/[\s\-.]/g, "");
+      const matchesQuery =
+        !query ||
+        normalizeSearchText(truck.plateNumber).includes(query) ||
+        (queryCompact && plateCompact.includes(queryCompact)) ||
+        normalizeSearchText(truck.type).includes(query) ||
+        normalizeSearchText(truck.currentRoute).includes(query);
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" ? truck.active !== false : truck.active === false);
+      const matchesCooling =
+        coolingFilter === "all" ||
+        (coolingFilter === "cooling" ? Boolean(truck.refrigerated) : !truck.refrigerated);
+      return matchesQuery && matchesStatus && matchesCooling;
+    });
+  }, [trucks, search, statusFilter, coolingFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, coolingFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTrucks.length / PAGE_SIZE));
+  const paginatedTrucks = filteredTrucks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openCreate = () => {
     setEditing(null);
@@ -179,7 +215,34 @@ export default function TrucksPage() {
         <p className="mt-1 max-w-2xl text-sm text-slate-600">Theo dõi tải trọng còn trống, tuyến hoạt động và trạng thái sẵn sàng nhận đơn.</p>
       </div>
 
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1 sm:max-w-xs">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm biển số, loại xe, tuyến..."
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Trạng thái" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả trạng thái</SelectItem>
+              <SelectItem value="active">Hoạt động</SelectItem>
+              <SelectItem value="paused">Tạm dừng</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={coolingFilter} onValueChange={setCoolingFilter}>
+            <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Loại xe" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả loại xe</SelectItem>
+              <SelectItem value="cooling">Xe lạnh</SelectItem>
+              <SelectItem value="normal">Xe thường</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Button className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700" onClick={openCreate}>
           <Plus size={16} />
           Đăng ký xe
@@ -191,9 +254,13 @@ export default function TrucksPage() {
           <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
           Đang tải dữ liệu xe...
         </div>
+      ) : filteredTrucks.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">
+          Không tìm thấy xe phù hợp với bộ lọc hiện tại.
+        </div>
       ) : (
         <div className="space-y-3">
-          {trucks.map((truck) => {
+          {paginatedTrucks.map((truck) => {
             const used = Math.max((truck.maxCapacityKg || 0) - (truck.remainingKg || 0), 0);
             const usedPct = Math.min(100, Math.round((used / Math.max(truck.maxCapacityKg || 1, 1)) * 100));
             return (
@@ -241,6 +308,13 @@ export default function TrucksPage() {
               </Card>
             );
           })}
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={filteredTrucks.length}
+            pageSize={PAGE_SIZE}
+          />
         </div>
       )}
 

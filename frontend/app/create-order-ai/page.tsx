@@ -4,8 +4,8 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { TransportCopilot } from "@/components/transport-copilot";
 
 export const metadata: Metadata = {
-  title: "Transport Copilot | FreshChain AI",
-  description: "Copilot nhập liệu cho việc tạo xe chở hàng và hàng hóa",
+  title: "Copilot vận tải | FreshChain AI",
+  description: "Copilot nhập liệu tiếng Việt để tạo mới xe chở hàng và hàng hóa",
 };
 
 export default function CreateOrderWithAIPage() {
@@ -21,8 +21,8 @@ export default function CreateOrderWithAIPage() {
                 </Badge>
                 <div className="space-y-3">
                   <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-                    Tạo xe chở hàng và hàng hóa bằng hội thoại, có lưu phiên và
-                    xác nhận trước khi gửi.
+                    Tạo xe chở hàng và hàng hóa bằng hội thoại, có lưu phiên và xác
+                    nhận trước khi gửi.
                   </h1>
                   <p className="max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
                     Copilot lấy dữ liệu từ phiên đăng nhập, tự nhận dạng ý định,
@@ -33,16 +33,16 @@ export default function CreateOrderWithAIPage() {
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    <div className="font-semibold">Stateful</div>
-                    <div>Luu session qua nhieu luot</div>
+                    <div className="font-semibold">Lưu trạng thái</div>
+                    <div>Giữ session qua nhiều lượt</div>
                   </div>
                   <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
-                    <div className="font-semibold">An toan</div>
-                    <div>Xac nhan truoc khi tao</div>
+                    <div className="font-semibold">An toàn</div>
+                    <div>Xác nhận trước khi tạo</div>
                   </div>
                   <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-                    <div className="font-semibold">Dung nghiep vu</div>
-                    <div>Xe va hang deu ho tro</div>
+                    <div className="font-semibold">Đúng nghiệp vụ</div>
+                    <div>Xe và hàng đều được hỗ trợ</div>
                   </div>
                 </div>
               </div>
@@ -57,12 +57,12 @@ export default function CreateOrderWithAIPage() {
                       desc: "Bạn nói hoặc gõ yêu cầu tự nhiên về xe hoặc hàng hóa.",
                     },
                     {
-                      title: "2. Copilot lưu session",
+                      title: "2. Copilot lưu phiên",
                       desc: "Backend giữ intent, data, status và approved để không mất ngữ cảnh.",
                     },
                     {
                       title: "3. Xem trước",
-                      desc: "Copilot kiểm tra thiếu dữ liệu, chuẩn hóa và dựng bản preview.",
+                      desc: "Copilot kiểm tra dữ liệu thiếu, chuẩn hóa và dựng bản preview.",
                     },
                     {
                       title: "4. Xác nhận tạo",
@@ -91,8 +91,8 @@ export default function CreateOrderWithAIPage() {
               <div>
                 <h3 className="font-semibold text-blue-900">Mẹo sử dụng</h3>
                 <p className="text-sm text-blue-800">
-                  Nêu rõ loại xe/hàng, biển số, tải trọng, tuyến, thời gian và
-                  các yêu cầu đặc biệt để Copilot điền chính xác hơn.
+                  Nêu rõ loại xe/hàng, biển số, tải trọng, tuyến, thời gian và các
+                  yêu cầu đặc biệt để Copilot điền chính xác hơn.
                 </p>
               </div>
               <ul className="space-y-1 text-sm text-blue-800">

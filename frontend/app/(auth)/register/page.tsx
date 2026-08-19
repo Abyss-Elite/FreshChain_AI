@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/form";
 import { authApi } from "@/lib/api";
+import { useUser } from "@/contexts/user-context";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { login } = useUser();
   const { register, handleSubmit, formState } = useForm({
     defaultValues: { name: "", company: "", email: "", password: "", role: "SHIPPER" },
   });
@@ -27,8 +29,7 @@ export default function RegisterPage() {
             onSubmit={handleSubmit(async (values) => {
               try {
                 const data = await authApi.register(values);
-                localStorage.setItem("token", data.token);
-                localStorage.setItem("user", JSON.stringify(data.user));
+                login(data.user, data.token);
                 toast.success("Tạo tài khoản thành công");
                 router.push("/matching");
               } catch (error: any) {

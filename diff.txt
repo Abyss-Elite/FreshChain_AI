@@ -1,0 +1,928 @@
+﻿diff --git a/backend/src/services/transportCopilot.ts b/backend/src/services/transportCopilot.ts
+index 637db44..5a97a06 100644
+--- a/backend/src/services/transportCopilot.ts
++++ b/backend/src/services/transportCopilot.ts
+@@ -1,5 +1,6 @@
+-import { AssistantSessionStatus, Prisma } from "@prisma/client";
++∩╗┐import { AssistantSessionStatus, Prisma } from "@prisma/client";
+ import { prisma } from "../utils/prisma.js";
++import { HttpError } from "../utils/http.js";
+ import { vietnamLogisticsLocations } from "./orderAssistant.js";
+ 
+ export type CopilotIntent = "CREATE_TRUCK" | "CREATE_SHIPMENT" | "UNKNOWN";
+@@ -13,6 +14,23 @@ export type CopilotStatus =
+   | "FAILED"
+   | "CANCELLED";
+ 
++export function canCreateTruck(role: string) {
++  return ["SHIPPER", "ADMIN"].includes(role);
++}
++
++export function canCreateShipment(role: string) {
++  return ["CARRIER", "ADMIN"].includes(role);
++}
++
++async function resolveCurrentUserRole(userId: string, fallbackRole: string) {
++  const user = await prisma.user.findUnique({
++    where: { id: userId },
++    select: { role: true },
++  });
++
++  return user?.role ?? fallbackRole;
++}
++
+ export interface CopilotContext {
+   intent: CopilotIntent;
+   status: CopilotStatus;
+@@ -75,8 +93,8 @@ function stripDiacritics(value: string) {
+   return value
+     .normalize("NFD")
+     .replace(/\p{Diacritic}/gu, "")
+-    .replace(/─æ/g, "d")
+-    .replace(/─É/g, "D");
++    .replace(/├äΓÇÿ/g, "d")
++    .replace(/├ä┬É/g, "D");
+ }
+ 
+ function normalizeText(value: string) {
+@@ -87,11 +105,235 @@ function normalizeWhitespace(value: string) {
+   return value.replace(/\s+/g, " ").trim();
+ }
+ 
++function toSentenceCase(value: string) {
++  const trimmed = normalizeWhitespace(value);
++  if (!trimmed) return trimmed;
++  return `${trimmed.charAt(0).toLocaleUpperCase("vi-VN")}${trimmed.slice(1)}`;
++}
++
++function normalizeTruckType(value: string | undefined) {
++  if (!value) return undefined;
++
++  const normalized = normalizeText(value);
++  if (normalized.includes("cho trai cay") || normalized.includes("trai cay")) {
++    return "Ch├í┬╗┼╕ tr├â┬íi c├â┬óy";
++  }
++  if (normalized.includes("dong lanh")) {
++    return "Xe t├í┬║┬úi ├äΓÇÿ├â┬┤ng l├í┬║┬ính";
++  }
++  if (normalized.includes("xe thuong")) {
++    return "Xe th├å┬░├í┬╗┬¥ng";
++  }
++
++  return toSentenceCase(value);
++}
++
++export function isTruckTemperatureSensitive(draft: Pick<TruckDraft, "type">) {
++  if (!draft.type) return false;
++  const normalized = normalizeText(draft.type);
++  return (
++    normalized.includes("trai cay") ||
++    normalized.includes("hoa qua") ||
++    normalized.includes("fruit") ||
++    normalized.includes("nong san") ||
++    normalized.includes("rau")
++  );
++}
++
++function friendlyFieldLabel(field: string) {
++  switch (field) {
++    case "type":
++      return "lo├í┬║┬íi xe";
++    case "plateNumber":
++      return "bi├í┬╗╞Æn s├í┬╗ΓÇÿ xe";
++    case "maxCapacityKg":
++      return "t├í┬║┬úi tr├í┬╗┬ìng t├í┬╗ΓÇÿi ├äΓÇÿa";
++    case "remainingKg":
++      return "t├í┬║┬úi tr├í┬╗┬ìng c├â┬▓n tr├í┬╗ΓÇÿng";
++    case "refrigerated":
++      return "xe l├í┬║┬ính";
++    case "tempMin":
++      return "nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó t├í┬╗ΓÇÿi thi├í┬╗╞Æu";
++    case "tempMax":
++      return "nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó t├í┬╗ΓÇÿi ├äΓÇÿa";
++    case "currentRoute":
++      return "tuy├í┬║┬┐n hi├í┬╗ΓÇín t├í┬║┬íi";
++    case "eta":
++      return "th├í┬╗┬¥i gian";
++    case "cargoType":
++      return "lo├í┬║┬íi h├â┬áng";
++    case "category":
++      return "nh├â┬│m h├â┬áng";
++    case "weightKg":
++      return "kh├í┬╗ΓÇÿi l├å┬░├í┬╗┬úng";
++    case "requiredTempMin":
++      return "nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó y├â┬¬u c├í┬║┬ºu t├í┬╗ΓÇÿi thi├í┬╗╞Æu";
++    case "requiredTempMax":
++      return "nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó y├â┬¬u c├í┬║┬ºu t├í┬╗ΓÇÿi ├äΓÇÿa";
++    case "pickup":
++      return "├äΓÇÿi├í┬╗╞Æm l├í┬║┬Ñy h├â┬áng";
++    case "dropoff":
++      return "├äΓÇÿi├í┬╗╞Æm giao h├â┬áng";
++    case "deliveryTime":
++      return "th├í┬╗┬¥i gian giao";
++    case "proposedPrice":
++      return "gi├â┬í ├äΓÇÿ├í┬╗┬ü xu├í┬║┬Ñt";
++    case "intent":
++      return "├â┬╜ ├äΓÇÿ├í┬╗ΓÇ╣nh";
++    default:
++      return field;
++  }
++}
++
++function buildMissingFieldsMessage(missingFields: string[]) {
++  if (missingFields.length === 0) return "├ä┬É├â┬ú nh├í┬║┬¡n th├â┬┤ng tin c├í┬╗┬ºa b├í┬║┬ín.";
++
++  const labels = missingFields.map((field) => {
++    if (field === "tempMin" || field === "tempMax") {
++      return "nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó";
++    }
++    return friendlyFieldLabel(field);
++  });
++  if (labels.length === 1) {
++    return `C├í┬║┬ºn th├â┬¬m ${labels[0]}.`;
++  }
++
++  return `C├í┬║┬ºn th├â┬¬m: ${labels.join(", ")}.`;
++}
++
++function friendlyValidationError(error: string) {
++  const normalized = normalizeText(error);
++
++  if (normalized === "eta") return "C├í┬║┬ºn th├â┬¬m th├í┬╗┬¥i gian.";
++  if (normalized === "deliverytime") return "C├í┬║┬ºn th├â┬¬m th├í┬╗┬¥i gian giao.";
++  if (normalized === "platenumber") return "C├í┬║┬ºn th├â┬¬m bi├í┬╗╞Æn s├í┬╗ΓÇÿ xe.";
++  if (normalized === "currentroute") return "C├í┬║┬ºn th├â┬¬m tuy├í┬║┬┐n hi├í┬╗ΓÇín t├í┬║┬íi.";
++  if (normalized === "cargotype") return "C├í┬║┬ºn th├â┬¬m lo├í┬║┬íi h├â┬áng.";
++  if (normalized === "category") return "C├í┬║┬ºn th├â┬¬m nh├â┬│m h├â┬áng.";
++  if (normalized === "pickup") return "C├í┬║┬ºn th├â┬¬m ├äΓÇÿi├í┬╗╞Æm l├í┬║┬Ñy h├â┬áng.";
++  if (normalized === "dropoff") return "C├í┬║┬ºn th├â┬¬m ├äΓÇÿi├í┬╗╞Æm giao h├â┬áng.";
++  if (normalized.includes("remainingkg > maxcapacitykg")) {
++    return "T├í┬║┬úi tr├í┬╗┬ìng c├â┬▓n tr├í┬╗ΓÇÿng kh├â┬┤ng ├äΓÇÿ├å┬░├í┬╗┬úc l├í┬╗ΓÇ║n h├å┬ín t├í┬║┬úi tr├í┬╗┬ìng t├í┬╗ΓÇÿi ├äΓÇÿa.";
++  }
++  if (normalized.includes("maxcapacitykg")) {
++    return "T├í┬║┬úi tr├í┬╗┬ìng t├í┬╗ΓÇÿi ├äΓÇÿa ph├í┬║┬úi l├í┬╗ΓÇ║n h├å┬ín 0.";
++  }
++  if (normalized.includes("remainingkg")) {
++    return "T├í┬║┬úi tr├í┬╗┬ìng c├â┬▓n tr├í┬╗ΓÇÿng ph├í┬║┬úi l├í┬╗ΓÇ║n h├å┬ín ho├í┬║┬╖c b├í┬║┬▒ng 0.";
++  }
++  if (normalized.includes("weightkg")) {
++    return "Kh├í┬╗ΓÇÿi l├å┬░├í┬╗┬úng ph├í┬║┬úi l├í┬╗ΓÇ║n h├å┬ín 0.";
++  }
++  if (normalized.includes("proposedprice")) {
++    return "Gi├â┬í ├äΓÇÿ├í┬╗┬ü xu├í┬║┬Ñt ph├í┬║┬úi l├í┬╗ΓÇ║n h├å┬ín 0.";
++  }
++  if (normalized.includes("requiredtempmin > requiredtempmax")) {
++    return "Nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó y├â┬¬u c├í┬║┬ºu t├í┬╗ΓÇÿi thi├í┬╗╞Æu kh├â┬┤ng ├äΓÇÿ├å┬░├í┬╗┬úc l├í┬╗ΓÇ║n h├å┬ín nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó t├í┬╗ΓÇÿi ├äΓÇÿa.";
++  }
++  if (normalized.includes("tempmin > tempmax")) {
++    return "Nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó t├í┬╗ΓÇÿi thi├í┬╗╞Æu kh├â┬┤ng ├äΓÇÿ├å┬░├í┬╗┬úc l├í┬╗ΓÇ║n h├å┬ín nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó t├í┬╗ΓÇÿi ├äΓÇÿa.";
++  }
++
++  return error;
++}
++
+ export function normalizePlateNumber(value?: string) {
+   if (!value) return undefined;
+   return value.replace(/\s+/g, "").toUpperCase();
+ }
+ 
++function extractPlateNumberFromSpeech(input: string): string | undefined {
++  const normalized = normalizeText(input);
++
++  const explicitMatch = normalized.match(
++    /\b(?:bien so|bsx)\s*[:\-]?\s*(.+?)(?=,|;|\.|\b(?:tai trong|con trong|tuyen|du kien|nhiet do)\b|$)/i,
++  );
++
++  const candidates = [
++    explicitMatch?.[1],
++    normalized.match(/\b(\d{2})\s*([a-z])\s*-\s*(\d{5})\b/i)?.[0],
++    normalized.match(/\b(\d{2})\s*([a-z])\s*-\s*(\d{3})\s*\.\s*(\d{2})\b/i)?.[0],
++    normalized.match(/\b(\d{2})\s*(?:xe|x|c)\s*(\d{5})\b/i)?.[0],
++    normalized.match(/\b(\d{2})\s*(\d{3})\s*(\d{2})\b/i)?.[0],
++  ].filter(Boolean) as string[];
++
++  for (const candidate of candidates) {
++    const cleaned = normalizeText(candidate)
++      .replace(/\b(xe|tai|xetai|xe tai|chu|chung|moi)\b/g, " ")
++      .replace(/\s+/g, " ")
++      .trim();
++
++    const explicitPlate = cleaned.match(/^(\d{2})\s*([a-z])\s*-\s*(\d{3})\s*\.\s*(\d{2})$/i);
++    if (explicitPlate) {
++      return `${explicitPlate[1]}${explicitPlate[2].toUpperCase()}-${explicitPlate[3]}.${explicitPlate[4]}`;
++    }
++
++    const compactPlate = cleaned.match(/^(\d{2})\s*([a-z])\s*-\s*(\d{5})$/i);
++    if (compactPlate) {
++      const serial = compactPlate[3];
++      return `${compactPlate[1]}${compactPlate[2].toUpperCase()}-${serial.slice(0, 3)}.${serial.slice(3)}`;
++    }
++
++    const groupedPlate = cleaned.match(/^(\d{2})\s*(\d{5})$/i);
++    if (groupedPlate) {
++      const serial = groupedPlate[2];
++      return `${groupedPlate[1]}C-${serial.slice(0, 3)}.${serial.slice(3)}`;
++    }
++
++    const mixedPlate = cleaned.match(/^(\d{2})\s*([a-z])\s*(\d{3})\s*(\d{2})$/i);
++    if (mixedPlate) {
++      return `${mixedPlate[1]}${mixedPlate[2].toUpperCase()}-${mixedPlate[3]}.${mixedPlate[4]}`;
++    }
++  }
++
++  return undefined;
++}
++
++function extractTruckRouteFromSpeech(input: string): string | undefined {
++  const normalized = normalizeText(input);
++  const patterns = [
++    /\b(?:di tu|tu)\s+(.+?)\s+\b(?:den|toi)\s+(.+?)(?=,|;|\.|\b(?:nhiet do|du kien|luc|sang mai|chieu mai|toi nay|ngay mai|ngay moi|ngay kia|mai kia)\b|$)/i,
++    /\b(?:di|di den)\s+(.+?)\s+\bden\s+(.+?)(?=,|;|\.|\b(?:nhiet do|du kien|luc|sang mai|chieu mai|toi nay|ngay mai|ngay moi|ngay kia|mai kia)\b|$)/i,
++    /\btuyen\s+(.+?)\s+\b(?:di|den|toi)\s+(.+?)(?=,|;|\.|\b(?:nhiet do|du kien|luc|sang mai|chieu mai|toi nay|ngay mai|ngay moi|ngay kia|mai kia)\b|$)/i,
++    /\btuyen\s+(.+?)(?=,|;|\.|\bnhiet do\b|\bdu kien\b|\bluc\b|$)/i,
++  ];
++
++  for (const pattern of patterns) {
++    const match = normalized.match(pattern);
++    if (!match?.[1]) continue;
++
++    if (match[2]) {
++      const originSource = normalizeWhitespace(match[1]);
++      const destinationSource = normalizeWhitespace(match[2]);
++      const origin = normalizeLocationToCity(match[1]);
++      const destination = normalizeLocationToCity(match[2]);
++      if (origin === originSource || destination === destinationSource) continue;
++      if (!origin || !destination) continue;
++      return `${origin} ├äΓÇÿi ${destination}`;
++    }
++
++    const route = formatTruckRouteFromText(match[1]);
++    if (route) return route;
++  }
++
++  return undefined;
++}
++
++function formatTruckRouteFromText(routeText: string) {
++  const normalized = normalizeWhitespace(routeText);
++  const connectorMatch = normalized.match(/^(.+?)\s+\b(?:di|den|toi)\s+(.+)$/i);
++  if (connectorMatch?.[1] && connectorMatch[2]) {
++    const origin = normalizeLocationToCity(connectorMatch[1]);
++    const destination = normalizeLocationToCity(connectorMatch[2]);
++    if (origin && destination) {
++      return `${origin} ├äΓÇÿi ${destination}`;
++    }
++  }
++
++  return normalizeLocationToCity(routeText);
++}
++
++
+ export function normalizeQuantityToKg(value?: string) {
+   if (!value) return undefined;
+   const normalized = normalizeText(value).replace(/,/g, ".");
+@@ -171,6 +413,10 @@ function parseExplicitClockTime(text: string) {
+ 
+   const hour = Number(hourMinuteMatch[1]);
+   const minute = hourMinuteMatch[2] ? Number(hourMinuteMatch[2]) : 0;
++  const hasMorning = /\b(sang|buoi sang)\b/.test(normalized);
++  const hasAfternoon = /\b(chieu|buoi chieu)\b/.test(normalized);
++  const hasEvening = /\b(toi|buoi toi)\b/.test(normalized);
++  const hasNoon = /\b(trua|buoi trua)\b/.test(normalized);
+ 
+   if (
+     Number.isNaN(hour) ||
+@@ -183,7 +429,18 @@ function parseExplicitClockTime(text: string) {
+     return null;
+   }
+ 
+-  return { hour, minute };
++  let adjustedHour = hour;
++  if (hasNoon) {
++    adjustedHour = 12;
++  } else if (hasAfternoon || hasEvening) {
++    if (adjustedHour >= 1 && adjustedHour <= 11) {
++      adjustedHour += 12;
++    }
++  } else if (hasMorning && adjustedHour === 12) {
++    adjustedHour = 0;
++  }
++
++  return { hour: adjustedHour, minute };
+ }
+ 
+ function getVietnamParts(date: Date) {
+@@ -232,6 +489,17 @@ function buildVietnamDate(
+   );
+ }
+ 
++function formatVietnamDateTimeDisplay(value?: string) {
++  if (!value) return "├óΓé¼ΓÇ¥";
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return value;
++  return new Intl.DateTimeFormat("vi-VN", {
++    dateStyle: "short",
++    timeStyle: "short",
++    timeZone: VIETNAM_TIME_ZONE,
++  }).format(date);
++}
++
+ function parseRelativeDateTime(
+   value: string,
+   currentDateTime: Date,
+@@ -243,11 +511,16 @@ function parseRelativeDateTime(
+   const hasTomorrow = normalized.includes("ngay mai");
+   const hasTomorrowMorning = normalized.includes("sang mai");
+   const hasTomorrowAfternoon = normalized.includes("chieu mai");
++  const hasDayAfterTomorrow =
++    normalized.includes("ngay mot") ||
++    normalized.includes("ngay kia") ||
++    normalized.includes("mai kia");
+   const hasThisEvening = normalized.includes("toi nay");
+   const hasNextWeek = normalized.includes("tuan sau");
+ 
+   let dayOffset = 0;
+-  if (hasTomorrow || hasTomorrowMorning || hasTomorrowAfternoon) dayOffset = 1;
++  if (hasDayAfterTomorrow) dayOffset = 2;
++  else if (hasTomorrow || hasTomorrowMorning || hasTomorrowAfternoon) dayOffset = 1;
+   else if (hasNextWeek) dayOffset = 7;
+   else if (hasToday || hasThisEvening) dayOffset = 0;
+   else if (!explicit) {
+@@ -289,8 +562,8 @@ function extractFirstMatch(
+ 
+ /**
+  * Normalize location string by extracting the valid city name from the text.
+- * Handles cases like "Cß║úng c├í Thß╗ì Quang, ─É├á Nß║╡ng" ΓåÆ "─É├á Nß║╡ng"
+- * or "Kho lß║ính H├▓a Kh├ính, Huß║┐" ΓåÆ "Huß║┐"
++ * Handles cases like "C├í┬║┬úng c├â┬í Th├í┬╗┬ì Quang, ├ä┬É├â┬á N├í┬║┬╡ng" ├óΓÇáΓÇÖ "├ä┬É├â┬á N├í┬║┬╡ng"
++ * or "Kho l├í┬║┬ính H├â┬▓a Kh├â┬ính, Hu├í┬║┬┐" ├óΓÇáΓÇÖ "Hu├í┬║┬┐"
+  * Also handles normalized (no-diacritics) input like "cang ca tho quang, da nang"
+  */
+ function normalizeLocationToCity(
+@@ -343,6 +616,31 @@ function parseTemperatureRangeText(value?: string) {
+   return { min, max };
+ }
+ 
++function extractTemperatureRangeFromSpeech(input: string) {
++  const normalized = normalizeText(input)
++    .replace(/\btuoi\b/g, " ")
++    .replace(/\s+/g, " ")
++    .trim();
++
++  const patterns = [
++    /(?:nhiet do|nhiet|am)\s*(?:tu|:)\s*(am\s*)?(-?\d+(?:\.\d+)?)\s*(?:den|toi|-|va)\s*(am\s*)?(-?\d+(?:\.\d+)?)(?:\s*do)?/i,
++    /(am\s*)?(-?\d+(?:\.\d+)?)\s*(?:den|toi|-|va)\s*(am\s*)?(-?\d+(?:\.\d+)?)(?:\s*do)?/i,
++  ];
++
++  for (const pattern of patterns) {
++    const match = normalized.match(pattern);
++    if (match?.[2] && match?.[4]) {
++      const min = parseSignedNumber(`${match[1] ?? ""}${match[2]}`);
++      const max = parseSignedNumber(`${match[3] ?? ""}${match[4]}`);
++      if (min !== undefined && max !== undefined) {
++        return { min, max };
++      }
++    }
++  }
++
++  return {};
++}
++
+ export function inferTruckDraftNormalized(
+   input: string,
+   currentDateTime: Date,
+@@ -355,9 +653,7 @@ export function inferTruckDraftNormalized(
+     /\b(?:xe|loai xe)\s+(.+?)(?=\b(?:bien so|bsx|tai trong|con trong|tuyen|du kien|nhiet do)\b|,|$)/i,
+     /\b(?:tao|them)\s+(?:xe\s+)?(.+?)(?=\b(?:bien so|bsx|tai trong|con trong|tuyen|du kien|nhiet do)\b|,|$)/i,
+   ]);
+-  const plateNumber = extractFirstMatch(input, [
+-    /\b(?:bien so|bsx)\s*[:\-]?\s*([a-z0-9\-.]+)(?=,|;|\.|\b(?:tai trong|con trong|tuyen|du kien|nhiet do)\b|$)/i,
+-  ]);
++  const plateNumber = extractPlateNumberFromSpeech(input);
+   const maxCapacity = extractFirstMatch(input, [
+     /\btai trong(?: toi da)?\s*[:\-]?\s*([0-9.,]+\s*(?:tan|ton|kg)?)\b/i,
+     /\bcon cho\s*[:\-]?\s*([0-9.,]+\s*(?:tan|ton|kg)?)\b/i,
+@@ -366,9 +662,7 @@ export function inferTruckDraftNormalized(
+     /\bcon trong\s*[:\-]?\s*([0-9.,]+\s*(?:tan|ton|kg)?)\b/i,
+     /\btrong hoan toan\b/i,
+   ]);
+-  const route = extractFirstMatch(input, [
+-    /\btuyen\s+(.+?)(?=,|;|\.|\bnhiet do\b|\bdu kien\b|\bluc\b|$)/i,
+-  ]);
++  const route = extractTruckRouteFromSpeech(input);
+   const etaRaw = extractFirstMatch(input, [
+     /\bdu kien den\s+(.+?)(?=\.|,|;|$)/i,
+     /\bdu kien\s+(.+?)(?=\.|,|;|$)/i,
+@@ -381,7 +675,7 @@ export function inferTruckDraftNormalized(
+   ]);
+ 
+   if (!draft.type && type) {
+-    draft.type = normalizeWhitespace(type);
++    draft.type = normalizeTruckType(type);
+   }
+   if (plateNumber) draft.plateNumber = normalizePlateNumber(plateNumber);
+   if (maxCapacity) draft.maxCapacityKg = normalizeQuantityToKg(maxCapacity);
+@@ -401,6 +695,7 @@ export function inferTruckDraftNormalized(
+     ["khong lanh", "khong co lam lanh", "khong dong lanh", "xe thuong"],
+   );
+   if (refrigerated !== undefined) draft.refrigerated = refrigerated;
++  else if (draft.refrigerated === undefined) draft.refrigerated = false;
+   if (route) draft.currentRoute = route;
+   if (etaRaw) {
+     const parsed = parseRelativeDateTime(etaRaw, currentDateTime);
+@@ -410,6 +705,13 @@ export function inferTruckDraftNormalized(
+   }
+ 
+   const tempRange = parseTemperatureRangeText(tempRangeText);
++  const fallbackTempRange = extractTemperatureRangeFromSpeech(input);
++  if (tempRange.min === undefined && fallbackTempRange.min !== undefined) {
++    tempRange.min = fallbackTempRange.min;
++  }
++  if (tempRange.max === undefined && fallbackTempRange.max !== undefined) {
++    tempRange.max = fallbackTempRange.max;
++  }
+   if (tempRange.min !== undefined) draft.tempMin = tempRange.min;
+   if (tempRange.max !== undefined) draft.tempMax = tempRange.max;
+ 
+@@ -419,6 +721,7 @@ export function inferTruckDraftNormalized(
+   return draft;
+ }
+ 
++
+ export function inferShipmentDraftNormalized(
+   input: string,
+   currentDateTime: Date,
+@@ -471,7 +774,8 @@ export function inferShipmentDraftNormalized(
+     );
+   }
+   if (!draft.category) {
+-    draft.category = inferShipmentCategory(draft.cargoType);
++    draft.category =
++      extractShipmentCategory(input) ?? inferShipmentCategory(draft.cargoType);
+   }
+   if (pickup) draft.pickup = normalizeLocationToCity(pickup);
+   if (dropoff) draft.dropoff = normalizeLocationToCity(dropoff);
+@@ -559,8 +863,8 @@ function inferIntent(
+ 
+ function inferTruckType(input: string) {
+   return extractFirstMatch(input, [
+-    /(?:xe|loai xe)\s+(.+?)(?=\bbi?n s[oß╗æ]\b|,| tai trong| dang| du kien|$)/i,
+-    /(?:tao|them)\s+(.+?)(?=\bbi?n s[oß╗æ]\b|,| tai trong| dang| du kien|$)/i,
++    /(?:xe|loai xe)\s+(.+?)(?=\bbi?n s[o├í┬╗ΓÇÿ]\b|,| tai trong| dang| du kien|$)/i,
++    /(?:tao|them)\s+(.+?)(?=\bbi?n s[o├í┬╗ΓÇÿ]\b|,| tai trong| dang| du kien|$)/i,
+   ]);
+ }
+ 
+@@ -572,7 +876,7 @@ function inferTruckDraft(
+   const draft: TruckDraft = { ...previous };
+ 
+   const plateNumber = extractFirstMatch(input, [
+-    /\bbi?n s[oß╗æ]\s*[:\-]?\s*([A-Za-z0-9\-. ]{5,})/i,
++    /\bbi?n s[o├í┬╗ΓÇÿ]\s*[:\-]?\s*([A-Za-z0-9\-. ]{5,})/i,
+     /\bbsx\s*[:\-]?\s*([A-Za-z0-9\-. ]{5,})/i,
+   ]);
+   const maxCapacity = extractFirstMatch(input, [
+@@ -583,9 +887,7 @@ function inferTruckDraft(
+     /\bcon trong\s*[:\-]?\s*([0-9.,]+\s*(?:tan|ton|kg)?)\b/i,
+     /\btrong hoan toan\b/i,
+   ]);
+-  const route = extractFirstMatch(input, [
+-    /\btuyen\s+(.+?)(?=,|;|\.|\bnhiet do\b|\bdu kien\b|\bluc\b|$)/i,
+-  ]);
++  const route = extractTruckRouteFromSpeech(input);
+   const etaRaw = extractFirstMatch(input, [
+     /\bdu kien den\s+(.+?)(?=\.|,|;|$)/i,
+     /\bdu kien\s+(.+?)(?=\.|,|;|$)/i,
+@@ -597,7 +899,7 @@ function inferTruckDraft(
+   ]);
+ 
+   if (!draft.type) {
+-    draft.type = inferTruckType(input);
++    draft.type = normalizeTruckType(inferTruckType(input));
+   }
+   if (plateNumber) draft.plateNumber = normalizePlateNumber(plateNumber);
+   if (maxCapacity) draft.maxCapacityKg = normalizeQuantityToKg(maxCapacity);
+@@ -617,6 +919,7 @@ function inferTruckDraft(
+     ["khong lanh", "khong co lam lanh", "khong dong lanh", "xe thuong"],
+   );
+   if (refrigerated !== undefined) draft.refrigerated = refrigerated;
++  else if (draft.refrigerated === undefined) draft.refrigerated = false;
+   if (route) draft.currentRoute = route;
+   if (etaRaw) {
+     const parsed = parseRelativeDateTime(etaRaw, currentDateTime);
+@@ -647,6 +950,16 @@ function inferTruckDraft(
+ function inferShipmentCategory(cargoType?: string) {
+   if (!cargoType) return undefined;
+   const normalized = normalizeText(cargoType);
++  if (
++    normalized.includes("trai cay") ||
++    normalized.includes("hoa qua") ||
++    normalized.includes("chuoi") ||
++    normalized.includes("xoai") ||
++    normalized.includes("sau rieng") ||
++    normalized.includes("cam")
++  ) {
++    return "Tr├â┬íi c├â┬óy";
++  }
+   if (
+     normalized.includes("ca") ||
+     normalized.includes("hai san") ||
+@@ -654,7 +967,7 @@ function inferShipmentCategory(cargoType?: string) {
+     normalized.includes("muc") ||
+     normalized.includes("cua")
+   ) {
+-    return "Hß║úi sß║ún";
++    return "H├í┬║┬úi s├í┬║┬ún";
+   }
+   if (
+     normalized.includes("rau") ||
+@@ -662,7 +975,7 @@ function inferShipmentCategory(cargoType?: string) {
+     normalized.includes("qua") ||
+     normalized.includes("nong san")
+   ) {
+-    return "Rau cß╗º quß║ú";
++    return "Rau c├í┬╗┬º qu├í┬║┬ú";
+   }
+   if (
+     normalized.includes("thit") ||
+@@ -671,11 +984,27 @@ function inferShipmentCategory(cargoType?: string) {
+     normalized.includes("heo") ||
+     normalized.includes("bo")
+   ) {
+-    return "Thß╗ït/Gia cß║ºm";
++    return "Th├í┬╗ΓÇ╣t/Gia c├í┬║┬ºm";
+   }
+   return undefined;
+ }
+ 
++function extractShipmentCategory(input: string) {
++  const patterns = [
++    /\b(?:nh├â┬│m h├â┬áng|lo├í┬║┬íi h├â┬áng)\s*[:\-]?\s*(.+?)(?=,|\bl├í┬║┬Ñy t├í┬║┬íi\b|\bd├â┬│n? t├í┬║┬íi\b|\bgiao ├äΓÇÿ├í┬║┬┐n\b|\bd├í┬╗┬▒ ki├í┬║┬┐n\b|\bl├â┬║c\b|\bnhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó\b|\bgi├â┬í\b|$)/i,
++    /\b(?:nhom hang|loai hang)\s*[:\-]?\s*(.+?)(?=,|\blay tai\b|\bdon tai\b|\bgiao den\b|\bdu kien\b|\bluc\b|\bnhiet do\b|\bgia\b|$)/i,
++  ];
++
++  for (const pattern of patterns) {
++    const match = input.match(pattern);
++    if (match?.[1]) {
++      return toSentenceCase(match[1]);
++    }
++  }
++
++  return undefined;
++}
++
+ function inferShipmentDraft(
+   input: string,
+   currentDateTime: Date,
+@@ -686,7 +1015,7 @@ function inferShipmentDraft(
+ 
+   const cargoType = extractFirstMatch(input, [
+     /\b(?:hang hoa\s+gom|gom|hang)\s+(.+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
+-    /([A-Za-z├Ç-ß╗╣0-9\s\-/]+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
++    /([A-Za-z├âΓé¼-├í┬╗┬╣0-9\s\-/]+?)(?=,|\blay tai\b|\bgiao den\b|\bluc\b|\bnhiet do\b|$)/i,
+   ]);
+   const pickup = extractFirstMatch(input, [
+     /\blay tai\s+(.+?)(?=,|\bgiao den\b|\bluc\b|$)/i,
+@@ -704,8 +1033,8 @@ function inferShipmentDraft(
+     /\bnhiet do\s*[:\-]?\s*(.+?)$/i,
+   ]);
+   const priceText = extractFirstMatch(input, [
+-    /\bgi[a├í] de xuat\s+(.+?)(?=,|\.|$)/i,
+-    /\bgi[a├í]\s+(.+?)(?=,|\.|$)/i,
++    /\bgi[a├â┬í] de xuat\s+(.+?)(?=,|\.|$)/i,
++    /\bgi[a├â┬í]\s+(.+?)(?=,|\.|$)/i,
+   ]);
+   const deliveryTimeRaw = extractFirstMatch(input, [
+     /\bluc\s+(.+?)(?=,|\.|$)/i,
+@@ -721,7 +1050,8 @@ function inferShipmentDraft(
+     draft.cargoType = normalizeWhitespace(cargoType);
+   }
+   if (!draft.category) {
+-    draft.category = inferShipmentCategory(draft.cargoType);
++    draft.category =
++      extractShipmentCategory(input) ?? inferShipmentCategory(draft.cargoType);
+   }
+   if (pickup) draft.pickup = pickup;
+   if (dropoff) draft.dropoff = dropoff;
+@@ -796,6 +1126,7 @@ function isDefined<T>(value: T | undefined | null): value is T {
+ function validateTruckDraft(draft: TruckDraft) {
+   const missingFields: string[] = [];
+   const validationErrors: string[] = [];
++  const temperatureSensitive = isTruckTemperatureSensitive(draft);
+ 
+   if (!draft.type || draft.type.trim().length < 2) missingFields.push("type");
+   if (!draft.plateNumber || draft.plateNumber.trim().length < 5)
+@@ -820,21 +1151,21 @@ function validateTruckDraft(draft: TruckDraft) {
+   ) {
+     validationErrors.push("remainingKg kh├┤ng ─æ╞░ß╗úc lß╗¢n h╞ín maxCapacityKg");
+   }
+-  if (draft.refrigerated && !isDefined(draft.tempMin)) {
++  if ((draft.refrigerated || temperatureSensitive) && !isDefined(draft.tempMin)) {
+     missingFields.push("tempMin");
+   }
+-  if (draft.refrigerated && !isDefined(draft.tempMax)) {
++  if ((draft.refrigerated || temperatureSensitive) && !isDefined(draft.tempMax)) {
+     missingFields.push("tempMax");
+   }
+   if (
+-    draft.refrigerated &&
++    (draft.refrigerated || temperatureSensitive) &&
+     isDefined(draft.tempMin) &&
+     isDefined(draft.tempMax) &&
+     draft.tempMin > draft.tempMax
+   ) {
+     validationErrors.push("tempMin kh├┤ng ─æ╞░ß╗úc lß╗¢n h╞ín tempMax");
+   }
+-  if (!draft.refrigerated) {
++  if (!draft.refrigerated && !temperatureSensitive) {
+     draft.tempMin = draft.tempMin ?? null;
+     draft.tempMax = draft.tempMax ?? null;
+   }
+@@ -861,17 +1192,17 @@ function validateShipmentDraft(draft: ShipmentDraft) {
+   if (!isDefined(draft.proposedPrice)) missingFields.push("proposedPrice");
+ 
+   if (isDefined(draft.weightKg) && draft.weightKg <= 0) {
+-    validationErrors.push("weightKg phß║úi l├á sß╗æ nguy├¬n lß╗¢n h╞ín 0");
++    validationErrors.push("weightKg ph├í┬║┬úi l├â┬á s├í┬╗ΓÇÿ nguy├â┬¬n l├í┬╗ΓÇ║n h├å┬ín 0");
+   }
+   if (isDefined(draft.proposedPrice) && draft.proposedPrice <= 0) {
+-    validationErrors.push("proposedPrice phß║úi l├á sß╗æ nguy├¬n lß╗¢n h╞ín 0");
++    validationErrors.push("proposedPrice ph├í┬║┬úi l├â┬á s├í┬╗ΓÇÿ nguy├â┬¬n l├í┬╗ΓÇ║n h├å┬ín 0");
+   }
+   if (
+     isDefined(draft.requiredTempMin) &&
+     isDefined(draft.requiredTempMax) &&
+     draft.requiredTempMin > draft.requiredTempMax
+   ) {
+-    validationErrors.push("requiredTempMin kh├┤ng ─æ╞░ß╗úc lß╗¢n h╞ín requiredTempMax");
++    validationErrors.push("requiredTempMin kh├â┬┤ng ├äΓÇÿ├å┬░├í┬╗┬úc l├í┬╗ΓÇ║n h├å┬ín requiredTempMax");
+   }
+ 
+   return { missingFields, validationErrors };
+@@ -893,6 +1224,17 @@ function buildTruckPreview(draft: TruckDraft) {
+   };
+ }
+ 
++function formatTruckBoolean(value: boolean | undefined) {
++  if (value === true) return "C├â┬│";
++  if (value === false) return "Kh├â┬┤ng";
++  return "Tr├í┬╗ΓÇÿng";
++}
++
++function formatTruckTemperature(value: number | null | undefined) {
++  if (value === null || value === undefined) return "Tr├í┬╗ΓÇÿng";
++  return `${value} ├é┬░C`;
++}
++
+ function buildShipmentPreview(draft: ShipmentDraft) {
+   return {
+     cargoType: draft.cargoType?.trim(),
+@@ -923,14 +1265,14 @@ function confirmationForIntent(
+   preview: Record<string, any>,
+ ) {
+   if (intent === "CREATE_TRUCK") {
+-    return `Th├┤ng tin xe sß║»p ─æ╞░ß╗úc tß║ío:\n\n* Loß║íi xe: ${preview.type}\n* Biß╗ân sß╗æ: ${preview.plateNumber}\n* Tß║úi trß╗ìng tß╗æi ─æa: ${preview.maxCapacityKg} kg\n* Tß║úi trß╗ìng c├▓n trß╗æng: ${preview.remainingKg} kg\n* Xe lß║ính: ${preview.refrigerated}\n* Nhiß╗çt ─æß╗Ö: ${preview.tempMin ?? "null"} ─æß║┐n ${preview.tempMax ?? "null"} ┬░C\n* Tuyß║┐n hiß╗çn tß║íi: ${preview.currentRoute}\n* Thß╗¥i gian dß╗▒ kiß║┐n ─æß║┐n: ${preview.eta}\n\nBß║ín c├│ x├íc nhß║¡n tß║ío xe n├áy kh├┤ng?`;
++    return `Th├â┬┤ng tin xe s├í┬║┬»p ├äΓÇÿ├å┬░├í┬╗┬úc t├í┬║┬ío:\n\n* Lo├í┬║┬íi xe: ${preview.type}\n* Bi├í┬╗╞Æn s├í┬╗ΓÇÿ: ${preview.plateNumber}\n* T├í┬║┬úi tr├í┬╗┬ìng t├í┬╗ΓÇÿi ├äΓÇÿa: ${preview.maxCapacityKg} kg\n* T├í┬║┬úi tr├í┬╗┬ìng c├â┬▓n tr├í┬╗ΓÇÿng: ${preview.remainingKg} kg\n* Xe l├í┬║┬ính: ${formatTruckBoolean(preview.refrigerated)}\n* Nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó: ${formatTruckTemperature(preview.tempMin)} ├äΓÇÿ├í┬║┬┐n ${formatTruckTemperature(preview.tempMax)}\n* Tuy├í┬║┬┐n hi├í┬╗ΓÇín t├í┬║┬íi: ${preview.currentRoute}\n* Th├í┬╗┬¥i gian d├í┬╗┬▒ ki├í┬║┬┐n ├äΓÇÿ├í┬║┬┐n: ${formatVietnamDateTimeDisplay(preview.eta)}\n\nB├í┬║┬ín c├â┬│ x├â┬íc nh├í┬║┬¡n t├í┬║┬ío xe n├â┬áy kh├â┬┤ng?`;
+   }
+ 
+   if (intent === "CREATE_SHIPMENT") {
+-    return `Th├┤ng tin h├áng h├│a sß║»p ─æ╞░ß╗úc tß║ío:\n\n* Loß║íi h├áng: ${preview.cargoType}\n* Nh├│m h├áng: ${preview.category}\n* Khß╗æi l╞░ß╗úng: ${preview.weightKg} kg\n* Nhiß╗çt ─æß╗Ö y├¬u cß║ºu: ${preview.requiredTempMin} ─æß║┐n ${preview.requiredTempMax} ┬░C\n* ─Éiß╗âm lß║Ñy h├áng: ${preview.pickup}\n* ─Éiß╗âm giao h├áng: ${preview.dropoff}\n* Thß╗¥i gian giao: ${preview.deliveryTime}\n* Gi├í ─æß╗ü xuß║Ñt: ${preview.proposedPrice} ─æß╗ông\n* H├áng dß╗à vß╗í: ${preview.fragile}\n* H├áng ─æ├┤ng lß║ính: ${preview.frozenRequired}\n* C├│ m├╣i mß║ính: ${preview.strongSmell}\n* Cho ph├⌐p gh├⌐p h├áng: ${preview.allowCombine}\n* Ghi ch├║: ${preview.notes ?? "ΓÇö"}\n\nBß║ín c├│ x├íc nhß║¡n tß║ío h├áng h├│a n├áy kh├┤ng?`;
++    return `Th├â┬┤ng tin h├â┬áng h├â┬│a s├í┬║┬»p ├äΓÇÿ├å┬░├í┬╗┬úc t├í┬║┬ío:\n\n* Lo├í┬║┬íi h├â┬áng: ${preview.cargoType}\n* Nh├â┬│m h├â┬áng: ${preview.category}\n* Kh├í┬╗ΓÇÿi l├å┬░├í┬╗┬úng: ${preview.weightKg} kg\n* Nhi├í┬╗ΓÇít ├äΓÇÿ├í┬╗Γäó y├â┬¬u c├í┬║┬ºu: ${preview.requiredTempMin} ├äΓÇÿ├í┬║┬┐n ${preview.requiredTempMax} ├é┬░C\n* ├ä┬Éi├í┬╗╞Æm l├í┬║┬Ñy h├â┬áng: ${preview.pickup}\n* ├ä┬Éi├í┬╗╞Æm giao h├â┬áng: ${preview.dropoff}\n* Th├í┬╗┬¥i gian giao: ${formatVietnamDateTimeDisplay(preview.deliveryTime)}\n* Gi├â┬í ├äΓÇÿ├í┬╗┬ü xu├í┬║┬Ñt: ${preview.proposedPrice} ├äΓÇÿ├í┬╗ΓÇ£ng\n* H├â┬áng d├í┬╗ΓÇª v├í┬╗┬í: ${preview.fragile}\n* H├â┬áng ├äΓÇÿ├â┬┤ng l├í┬║┬ính: ${preview.frozenRequired}\n* C├â┬│ m├â┬╣i m├í┬║┬ính: ${preview.strongSmell}\n* Cho ph├â┬⌐p gh├â┬⌐p h├â┬áng: ${preview.allowCombine}\n* Ghi ch├â┬║: ${preview.notes ?? "├óΓé¼ΓÇ¥"}\n\nB├í┬║┬ín c├â┬│ x├â┬íc nh├í┬║┬¡n t├í┬║┬ío h├â┬áng h├â┬│a n├â┬áy kh├â┬┤ng?`;
+   }
+ 
+-  return "Bß║ín muß╗æn tß║ío mß╗¢i xe chß╗ƒ h├áng hay tß║ío mß╗¢i h├áng h├│a?";
++  return "B├í┬║┬ín mu├í┬╗ΓÇÿn t├í┬║┬ío m├í┬╗ΓÇ║i xe ch├í┬╗┼╕ h├â┬áng hay t├í┬║┬ío m├í┬╗ΓÇ║i h├â┬áng h├â┬│a?";
+ }
+ 
+ async function getOrCreateCopilotSession(userId: string) {
+@@ -1023,12 +1365,12 @@ function buildContextFromState(
+       ? confirmationForIntent(intent, draft)
+       : missingFields.length > 0
+         ? intent === "CREATE_TRUCK"
+-          ? "Cß║ºn bß╗ò sung th├¬m th├┤ng tin ─æß╗â tiß║┐p tß╗Ñc tß║ío xe."
+-          : "Cß║ºn bß╗ò sung th├¬m th├┤ng tin ─æß╗â tiß║┐p tß╗Ñc tß║ío h├áng h├│a."
++          ? "C├í┬║┬ºn b├í┬╗ΓÇó sung th├â┬¬m th├â┬┤ng tin ├äΓÇÿ├í┬╗╞Æ ti├í┬║┬┐p t├í┬╗┬Ñc t├í┬║┬ío xe."
++          : "C├í┬║┬ºn b├í┬╗ΓÇó sung th├â┬¬m th├â┬┤ng tin ├äΓÇÿ├í┬╗╞Æ ti├í┬║┬┐p t├í┬╗┬Ñc t├í┬║┬ío h├â┬áng h├â┬│a."
+         : validationErrors.length > 0
+-          ? "C├│ mß╗Öt sß╗æ dß╗» liß╗çu ch╞░a hß╗úp lß╗ç. Vui l├▓ng kiß╗âm tra lß║íi."
++          ? "C├â┬│ m├í┬╗Γäót s├í┬╗ΓÇÿ d├í┬╗┬» li├í┬╗ΓÇíu ch├å┬░a h├í┬╗┬úp l├í┬╗ΓÇí. Vui l├â┬▓ng ki├í┬╗╞Æm tra l├í┬║┬íi."
+           : intent === "UNKNOWN"
+-            ? "Bß║ín muß╗æn tß║ío mß╗¢i xe chß╗ƒ h├áng hay tß║ío mß╗¢i h├áng h├│a?"
++            ? "B├í┬║┬ín mu├í┬╗ΓÇÿn t├í┬║┬ío m├í┬╗ΓÇ║i xe ch├í┬╗┼╕ h├â┬áng hay t├í┬║┬ío m├í┬╗ΓÇ║i h├â┬áng h├â┬│a?"
+             : null;
+ 
+   return {
+@@ -1081,6 +1423,7 @@ export async function parseCopilotMessage(args: {
+   sessionId?: string;
+   currentDateTime?: string;
+ }) {
++  const resolvedRole = await resolveCurrentUserRole(args.userId, args.userRole);
+   const baseSession = args.sessionId
+     ? await prisma.orderAssistantSession.findUnique({
+         where: { id: args.sessionId },
+@@ -1100,7 +1443,7 @@ export async function parseCopilotMessage(args: {
+ 
+   if (
+     intent === "CREATE_TRUCK" &&
+-    !["SHIPPER", "ADMIN"].includes(args.userRole)
++    !canCreateTruck(resolvedRole)
+   ) {
+     const context = buildContextFromState(
+       intent,
+@@ -1114,13 +1457,13 @@ export async function parseCopilotMessage(args: {
+     return {
+       sessionId: baseSession.id,
+       context,
+-      message: "Bß║ín kh├┤ng c├│ quyß╗ün thß╗▒c hiß╗çn thao t├íc n├áy.",
++      message: "B├í┬║┬ín kh├â┬┤ng c├â┬│ quy├í┬╗┬ün th├í┬╗┬▒c hi├í┬╗ΓÇín thao t├â┬íc n├â┬áy.",
+     };
+   }
+ 
+   if (
+     intent === "CREATE_SHIPMENT" &&
+-    !["CARRIER", "ADMIN"].includes(args.userRole)
++    !canCreateShipment(resolvedRole)
+   ) {
+     const context = buildContextFromState(
+       intent,
+@@ -1134,7 +1477,7 @@ export async function parseCopilotMessage(args: {
+     return {
+       sessionId: baseSession.id,
+       context,
+-      message: "Bß║ín kh├┤ng c├│ quyß╗ün thß╗▒c hiß╗çn thao t├íc n├áy.",
++      message: "B├í┬║┬ín kh├â┬┤ng c├â┬│ quy├í┬╗┬ün th├í┬╗┬▒c hi├í┬╗ΓÇín thao t├â┬íc n├â┬áy.",
+     };
+   }
+ 
+@@ -1225,7 +1568,7 @@ export async function parseCopilotMessage(args: {
+   } else {
+     missingFields = ["intent"];
+     status = "COLLECTING_DATA";
+-    confirmationMessage = "Bß║ín muß╗æn tß║ío mß╗¢i xe chß╗ƒ h├áng hay tß║ío mß╗¢i h├áng h├│a?";
++    confirmationMessage = "B├í┬║┬ín mu├í┬╗ΓÇÿn t├í┬║┬ío m├í┬╗ΓÇ║i xe ch├í┬╗┼╕ h├â┬áng hay t├í┬║┬ío m├í┬╗ΓÇ║i h├â┬áng h├â┬│a?";
+   }
+ 
+   const context = buildContextFromState(
+@@ -1252,14 +1595,12 @@ export async function parseCopilotMessage(args: {
+ 
+   const message =
+     status === "AWAITING_APPROVAL"
+-      ? confirmationMessage || "Bß║ín c├│ x├íc nhß║¡n tß║ío dß╗» liß╗çu n├áy kh├┤ng?"
++      ? confirmationMessage || "B├í┬║┬ín c├â┬│ x├â┬íc nh├í┬║┬¡n t├í┬║┬ío d├í┬╗┬» li├í┬╗ΓÇíu n├â┬áy kh├â┬┤ng?"
+       : missingFields.length > 0
+-        ? intent === "CREATE_TRUCK"
+-          ? `Cß║ºn th├¬m: ${missingFields.join(", ")}`
+-          : `Cß║ºn th├¬m: ${missingFields.join(", ")}`
+-        : validationErrors.length > 0
+-          ? validationErrors[0]
+-          : "─É├ú nhß║¡n th├┤ng tin cß╗ºa bß║ín.";
++      ? buildMissingFieldsMessage(missingFields)
++      : validationErrors.length > 0
++          ? friendlyValidationError(validationErrors[0])
++          : "├ä┬É├â┬ú nh├í┬║┬¡n th├â┬┤ng tin c├í┬╗┬ºa b├í┬║┬ín.";
+ 
+   return {
+     sessionId: updatedSession.id,
+@@ -1331,6 +1672,7 @@ export async function executeCopilotSession(args: {
+   userRole: string;
+   sessionId: string;
+ }) {
++  const resolvedRole = await resolveCurrentUserRole(args.userId, args.userRole);
+   const session = await prisma.orderAssistantSession.findUnique({
+     where: { id: args.sessionId },
+   });
+@@ -1346,20 +1688,20 @@ export async function executeCopilotSession(args: {
+     | Record<string, any>;
+ 
+   if (intent === "UNKNOWN") {
+-    throw new Error("Bß║ín muß╗æn tß║ío mß╗¢i xe chß╗ƒ h├áng hay tß║ío mß╗¢i h├áng h├│a?");
++    throw new Error("B├í┬║┬ín mu├í┬╗ΓÇÿn t├í┬║┬ío m├í┬╗ΓÇ║i xe ch├í┬╗┼╕ h├â┬áng hay t├í┬║┬ío m├í┬╗ΓÇ║i h├â┬áng h├â┬│a?");
+   }
+ 
+   if (
+     intent === "CREATE_TRUCK" &&
+-    !["SHIPPER", "ADMIN"].includes(args.userRole)
++    !canCreateTruck(resolvedRole)
+   ) {
+-    throw new Error("Bß║ín kh├┤ng c├│ quyß╗ün thß╗▒c hiß╗çn thao t├íc n├áy.");
++    throw new Error("B├í┬║┬ín kh├â┬┤ng c├â┬│ quy├í┬╗┬ün th├í┬╗┬▒c hi├í┬╗ΓÇín thao t├â┬íc n├â┬áy.");
+   }
+   if (
+     intent === "CREATE_SHIPMENT" &&
+-    !["CARRIER", "ADMIN"].includes(args.userRole)
++    !canCreateShipment(resolvedRole)
+   ) {
+-    throw new Error("Bß║ín kh├┤ng c├│ quyß╗ün thß╗▒c hiß╗çn thao t├íc n├áy.");
++    throw new Error("B├í┬║┬ín kh├â┬┤ng c├â┬│ quy├í┬╗┬ün th├í┬╗┬▒c hi├í┬╗ΓÇín thao t├â┬íc n├â┬áy.");
+   }
+ 
+   const context = buildContextFromState(
+@@ -1381,8 +1723,8 @@ export async function executeCopilotSession(args: {
+       success: true,
+       message:
+         intent === "CREATE_TRUCK"
+-          ? "Xe ─æ├ú ─æ╞░ß╗úc tß║ío th├ánh c├┤ng."
+-          : "H├áng h├│a ─æ├ú ─æ╞░ß╗úc tß║ío th├ánh c├┤ng.",
++          ? "Xe ├äΓÇÿ├â┬ú ├äΓÇÿ├å┬░├í┬╗┬úc t├í┬║┬ío th├â┬ánh c├â┬┤ng."
++          : "H├â┬áng h├â┬│a ├äΓÇÿ├â┬ú ├äΓÇÿ├å┬░├í┬╗┬úc t├í┬║┬ío th├â┬ánh c├â┬┤ng.",
+       entityId: session.copilotSubmittedEntityId,
+       entityType: session.copilotSubmittedEntityType,
+     };
+@@ -1395,24 +1737,62 @@ export async function executeCopilotSession(args: {
+ 
+   if (intent === "CREATE_TRUCK") {
+     const truckDraft = draft as TruckDraft;
+-    const truck = await prisma.truck.create({
+-      data: {
+-        ownerId: args.userId,
+-        type: truckDraft.type!.trim(),
+-        plateNumber: normalizePlateNumber(truckDraft.plateNumber!)!,
+-        maxCapacityKg: truckDraft.maxCapacityKg!,
+-        remainingKg: truckDraft.remainingKg!,
+-        refrigerated: Boolean(truckDraft.refrigerated),
+-        tempMin: truckDraft.refrigerated ? (truckDraft.tempMin ?? null) : null,
+-        tempMax: truckDraft.refrigerated ? (truckDraft.tempMax ?? null) : null,
+-        currentRoute: truckDraft.currentRoute!.trim(),
+-        currentLat: truckDraft.currentLat ?? 11.94,
+-        currentLng: truckDraft.currentLng ?? 108.45,
+-        eta: truckDraft.eta!,
+-        active: true,
+-      },
++    const normalizedPlateNumber = normalizePlateNumber(truckDraft.plateNumber!)!;
++
++    const existingTruck = await prisma.truck.findUnique({
++      where: { plateNumber: normalizedPlateNumber },
++      select: { id: true },
+     });
+ 
++    if (existingTruck) {
++      await saveCopilotSession(session.id, {
++        copilotStatus: "FAILED",
++        copilotValidationErrors: ["plateNumber"],
++        copilotConfirmationMessage: null,
++      });
++      throw new HttpError(
++        409,
++        "D├í┬╗┬» li├í┬╗ΓÇíu ├äΓÇÿ├â┬ú t├í┬╗ΓÇ£n t├í┬║┬íi ho├í┬║┬╖c b├í┬╗ΓÇ╣ tr├â┬╣ng. Vui l├â┬▓ng ki├í┬╗╞Æm tra l├í┬║┬íi th├â┬┤ng tin.",
++      );
++    }
++
++    let truck;
++    try {
++      truck = await prisma.truck.create({
++        data: {
++          ownerId: args.userId,
++          type: truckDraft.type!.trim(),
++          plateNumber: normalizedPlateNumber,
++          maxCapacityKg: truckDraft.maxCapacityKg!,
++          remainingKg: truckDraft.remainingKg!,
++          refrigerated: Boolean(truckDraft.refrigerated),
++          tempMin: truckDraft.refrigerated ? (truckDraft.tempMin ?? null) : null,
++          tempMax: truckDraft.refrigerated ? (truckDraft.tempMax ?? null) : null,
++          currentRoute: truckDraft.currentRoute!.trim(),
++          currentLat: truckDraft.currentLat ?? 11.94,
++          currentLng: truckDraft.currentLng ?? 108.45,
++          eta: truckDraft.eta!,
++          active: true,
++        },
++      });
++    } catch (error) {
++      if (
++        error instanceof Prisma.PrismaClientKnownRequestError &&
++        error.code === "P2002"
++      ) {
++        await saveCopilotSession(session.id, {
++          copilotStatus: "FAILED",
++          copilotValidationErrors: ["plateNumber"],
++          copilotConfirmationMessage: null,
++        });
++        throw new HttpError(
++          409,
++          "D├í┬╗┬» li├í┬╗ΓÇíu ├äΓÇÿ├â┬ú t├í┬╗ΓÇ£n t├í┬║┬íi ho├í┬║┬╖c b├í┬╗ΓÇ╣ tr├â┬╣ng. Vui l├â┬▓ng ki├í┬╗╞Æm tra l├í┬║┬íi th├â┬┤ng tin.",
++        );
++      }
++      throw error;
++    }
++
+     await saveCopilotSession(session.id, {
+       copilotStatus: "SUCCESS",
+       copilotSubmittedEntityId: truck.id,
+@@ -1422,7 +1802,7 @@ export async function executeCopilotSession(args: {
+ 
+     return {
+       success: true,
+-      message: "Xe ─æ├ú ─æ╞░ß╗úc tß║ío th├ánh c├┤ng.",
++      message: "Xe ├äΓÇÿ├â┬ú ├äΓÇÿ├å┬░├í┬╗┬úc t├í┬║┬ío th├â┬ánh c├â┬┤ng.",
+       truck,
+     };
+   }
+@@ -1464,7 +1844,8 @@ export async function executeCopilotSession(args: {
+ 
+   return {
+     success: true,
+-    message: "H├áng h├│a ─æ├ú ─æ╞░ß╗úc tß║ío th├ánh c├┤ng.",
++    message: "H├â┬áng h├â┬│a ├äΓÇÿ├â┬ú ├äΓÇÿ├å┬░├í┬╗┬úc t├í┬║┬ío th├â┬ánh c├â┬┤ng.",
+     shipment,
+   };
+ }
++

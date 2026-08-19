@@ -121,6 +121,14 @@ export function parseRelativeDate(
     base.setDate(base.getDate() + 1);
     return base.toISOString();
   }
+  if (
+    normalized === "ngày mốt" ||
+    normalized === "ngày kia" ||
+    normalized === "mai kia"
+  ) {
+    base.setDate(base.getDate() + 2);
+    return base.toISOString();
+  }
   if (normalized === "tối nay") return base.toISOString();
   if (normalized === "tuần sau") {
     base.setDate(base.getDate() + 7);

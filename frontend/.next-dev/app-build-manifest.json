@@ -6,30 +6,20 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/trucks/page": [
+    "/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/trucks/page.js"
+      "static/chunks/app/page.js"
     ],
-    "/create-order-ai/page": [
+    "/(auth)/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/create-order-ai/page.js"
-    ],
-    "/shipments/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/shipments/page.js"
+      "static/chunks/app/(auth)/login/page.js"
     ],
     "/matching/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/matching/page.js"
-    ],
-    "/signed-deals/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/signed-deals/page.js"
     ]
   }
 }

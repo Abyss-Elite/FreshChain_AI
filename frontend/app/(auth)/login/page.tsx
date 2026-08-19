@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/form";
 import { authApi } from "@/lib/api";
+import { useUser } from "@/contexts/user-context";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login } = useUser();
   const { register, handleSubmit, formState } = useForm({
     defaultValues: { email: "shipper@freshchain.vn", password: "123456" },
   });
@@ -27,8 +29,7 @@ export default function LoginPage() {
             onSubmit={handleSubmit(async (values) => {
               try {
                 const data = await authApi.login(values.email, values.password);
-                localStorage.setItem("token", data.token);
-                localStorage.setItem("user", JSON.stringify(data.user));
+                login(data.user, data.token);
                 toast.success("Đăng nhập thành công");
                 router.push("/matching");
               } catch (error: any) {

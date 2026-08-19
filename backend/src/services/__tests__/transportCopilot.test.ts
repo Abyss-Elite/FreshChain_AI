@@ -1,33 +1,58 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  canCreateShipment,
+  canCreateTruck,
   inferShipmentDraftNormalized,
   inferTruckDraftNormalized,
+  isTruckTemperatureSensitive,
 } from "../transportCopilot.js";
 
 test("parses the truck sample input with Vietnamese accents and relative time", () => {
   const currentDateTime = new Date("2026-08-10T08:00:00+07:00");
   const draft = inferTruckDraftNormalized(
-    "Tạo xe tải đông lạnh biển số 43C-123.45, tải trọng 5 tấn, còn trống 3 tấn, tuyến Đà Nẵng đi Huế, nhiệt độ từ âm 18 đến âm 10 độ, dự kiến đến lúc 9 giờ sáng mai",
+    "Tao xe tai dong lanh bien so 43C-123.45, tai trong 5 tan, con trong 3 tan, tuyen Da Nang di Hue, nhiet do tu am 18 den am 10 do, du kien den luc 9 gio sang mai",
     currentDateTime,
     {},
   );
 
-  assert.equal(draft.type, "tai dong lanh");
+  assert.equal(draft.type, "Xe tải đông lạnh");
   assert.equal(draft.plateNumber, "43C-123.45");
   assert.equal(draft.maxCapacityKg, 5000);
   assert.equal(draft.remainingKg, 3000);
   assert.equal(draft.refrigerated, true);
-  assert.equal(draft.currentRoute, "da nang di hue");
+  assert.equal(draft.currentRoute, "Đà Nẵng đi Huế");
   assert.equal(draft.tempMin, -18);
   assert.equal(draft.tempMax, -10);
   assert.equal(draft.eta?.toISOString(), "2026-08-11T02:00:00.000Z");
 });
 
+test("parses compact plate numbers and 'di tu ... den ...' truck routes", () => {
+  const currentDateTime = new Date("2026-08-18T08:00:00+07:00");
+  const draft = inferTruckDraftNormalized(
+    "Tao 1 xe cho trai cay, bien so xe 92A-12345, tai trong 5 tan, con trong 3 tan, di tu Da Nang den Ca Mau",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.type, "Chở trái cây");
+  assert.equal(draft.plateNumber, "92A-123.45");
+  assert.equal(draft.maxCapacityKg, 5000);
+  assert.equal(draft.remainingKg, 3000);
+  assert.equal(draft.currentRoute, "Đà Nẵng đi Cà Mau");
+  assert.equal(draft.refrigerated, false);
+  assert.equal(draft.eta, undefined);
+});
+
+test("treats fruit trucks as temperature-sensitive", () => {
+  assert.equal(isTruckTemperatureSensitive({ type: "Chở trái cây" }), true);
+  assert.equal(isTruckTemperatureSensitive({ type: "Xe thường" }), false);
+});
+
 test("parses the shipment sample input with temperature, price and combine rules", () => {
   const currentDateTime = new Date("2026-08-10T08:00:00+07:00");
   const draft = inferShipmentDraftNormalized(
-    "Tạo hàng hóa gồm 500 kg cá đông lạnh, lấy tại cảng cá Thọ Quang, giao đến kho lạnh Hòa Khánh lúc 15 giờ ngày mai, nhiệt độ từ âm 20 đến âm 15 độ, giá đề xuất 3 triệu đồng, không được ghép với hàng khác",
+    "Tao hang hoa gom 500 kg ca dong lanh, lay tai cang ca Tho Quang, giao den kho lanh Hoa Khanh luc 15 gio ngay mai, nhiet do tu am 20 den am 15 do, gia de xuat 3 trieu dong, khong duoc ghep voi hang khac",
     currentDateTime,
     {},
   );
@@ -45,4 +70,91 @@ test("parses the shipment sample input with temperature, price and combine rules
   assert.equal(draft.allowCombine, false);
   assert.equal(draft.fragile, false);
   assert.equal(draft.strongSmell, false);
+});
+
+test("extracts an explicit shipment category from the phrase nhom hang", () => {
+  const currentDateTime = new Date("2026-08-10T08:00:00+07:00");
+  const draft = inferShipmentDraftNormalized(
+    "Tao hang hoa gom 2 tan co dong lanh Nhom hang thuc pham dong lanh lay tai cang ca tho hoang Da Nang do den kho lanh Hoa Khanh ghe do vao luc 8:00 sang mai nhiet do tu Am 18 Do den am 10 do gia de xuat 3 trieu dong khong ghep hang voi cac don hang khac",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.category, "Thuc pham dong lanh");
+  assert.equal(draft.weightKg, 2000);
+  assert.equal(draft.proposedPrice, 3000000);
+  assert.equal(draft.allowCombine, false);
+});
+
+test("infers the fruit category for fruit shipments", () => {
+  const currentDateTime = new Date("2026-08-10T08:00:00+07:00");
+  const draft = inferShipmentDraftNormalized(
+    "Tao hang hoa gom 2 tan trai cay tuoi, lay tai Can Tho, giao den Da Nang, giao luc 8 gio sang mai, nhiet do tu 4 den 8 do, gia de xuat 3 trieu dong",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.category, "Trái cây");
+  assert.equal(draft.cargoType?.toLowerCase().includes("trai cay"), true);
+});
+
+test("parses 10h sang ngay mai as the next day in Vietnam time", () => {
+  const currentDateTime = new Date("2026-08-16T01:54:31.950Z");
+  const draft = inferShipmentDraftNormalized(
+    "Tao hang hoa gom 2 tan xoai, lay tai Ca Mau, giao den Da Nang, giao luc 10h sang ngay mai, nhiet do tu 10 den 15 do, gia de xuat 3 trieu dong",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.deliveryTime?.toISOString(), "2026-08-17T03:00:00.000Z");
+});
+
+test("parses 3h chieu mai as 15h on the next day", () => {
+  const currentDateTime = new Date("2026-08-18T01:54:31.950Z");
+  const draft = inferShipmentDraftNormalized(
+    "Tao hang hoa gom 1 tan xoai, lay tai Ca Mau, giao den Da Nang, giao luc 3h chieu mai, nhiet do tu 10 den 15 do, gia de xuat 3 trieu dong",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.deliveryTime?.toISOString(), "2026-08-19T08:00:00.000Z");
+});
+
+test("parses 7h ngay mot as the day after tomorrow", () => {
+  const currentDateTime = new Date("2026-08-18T01:54:31.950Z");
+  const draft = inferShipmentDraftNormalized(
+    "Tao hang hoa gom 1 tan xoai, lay tai Ca Mau, giao den Da Nang, giao luc 7h ngay mot, nhiet do tu 10 den 15 do, gia de xuat 3 trieu dong",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.deliveryTime?.toISOString(), "2026-08-20T00:00:00.000Z");
+});
+
+test("parses ngay mot, ngay kia and mai kia as two days later", () => {
+  const currentDateTime = new Date("2026-08-16T01:54:31.950Z");
+  const cases = [
+    "giao luc 10h sang ngay mot",
+    "giao luc 10h sang ngay kia",
+    "giao luc 10h sang mai kia",
+  ];
+
+  for (const input of cases) {
+    const draft = inferShipmentDraftNormalized(
+      `Tao hang hoa gom 2 tan xoai, lay tai Ca Mau, giao den Da Nang, ${input}, nhiet do tu 10 den 15 do, gia de xuat 3 trieu dong`,
+      currentDateTime,
+      {},
+    );
+
+    assert.equal(draft.deliveryTime?.toISOString(), "2026-08-18T03:00:00.000Z");
+  }
+});
+
+test("uses the corrected role mapping for copilot permissions", () => {
+  assert.equal(canCreateTruck("SHIPPER"), true);
+  assert.equal(canCreateTruck("CARRIER"), false);
+  assert.equal(canCreateShipment("CARRIER"), true);
+  assert.equal(canCreateShipment("SHIPPER"), false);
+  assert.equal(canCreateTruck("ADMIN"), true);
+  assert.equal(canCreateShipment("ADMIN"), true);
 });

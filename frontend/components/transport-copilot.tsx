@@ -1,9 +1,15 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
 import { copilotApi } from "@/lib/api";
 import { Loader2, Mic, MicOff, RotateCcw, Sparkles } from "lucide-react";
 
@@ -55,7 +61,7 @@ interface ChatItem {
 }
 
 function formatDateTime(value: any) {
-  if (!value) return "—";
+  if (!value) return "Trống";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat("vi-VN", {
@@ -63,6 +69,205 @@ function formatDateTime(value: any) {
     timeStyle: "short",
     timeZone: "Asia/Ho_Chi_Minh",
   }).format(date);
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  type: "Loại xe",
+  plateNumber: "Biển số",
+  maxCapacityKg: "Tải trọng tối đa",
+  remainingKg: "Tải trọng còn trống",
+  refrigerated: "Xe lạnh",
+  tempMin: "Nhiệt độ tối thiểu",
+  tempMax: "Nhiệt độ tối đa",
+  currentRoute: "Tuyến hiện tại",
+  eta: "Thời gian dự kiến đến",
+  cargoType: "Loại hàng",
+  category: "Nhóm hàng",
+  weightKg: "Khối lượng",
+  requiredTempMin: "Nhiệt độ yêu cầu tối thiểu",
+  requiredTempMax: "Nhiệt độ yêu cầu tối đa",
+  pickup: "Điểm lấy hàng",
+  dropoff: "Điểm giao hàng",
+  deliveryTime: "Thời gian giao",
+  proposedPrice: "Giá đề xuất",
+  notes: "Ghi chú",
+  strongSmell: "Có mùi mạnh",
+  fragile: "Dễ vỡ",
+  frozenRequired: "Đông lạnh",
+  specialTemperature: "Nhiệt độ đặc biệt",
+  allowCombine: "Cho phép ghép hàng",
+  compatibilityNote: "Lý do không ghép",
+};
+
+function displayFieldName(name: string) {
+  return FIELD_LABELS[name] || name;
+}
+
+function displayMissingFieldName(name: string) {
+  switch (name) {
+    case "eta":
+      return "thời gian";
+    case "deliveryTime":
+      return "thời gian";
+    case "tempMin":
+    case "tempMax":
+      return "nhiệt độ";
+    case "plateNumber":
+      return "biển số xe";
+    case "currentRoute":
+      return "tuyến hiện tại";
+    case "type":
+      return "loại xe";
+    case "cargoType":
+      return "loại hàng";
+    case "category":
+      return "nhóm hàng";
+    case "pickup":
+      return "điểm lấy hàng";
+    case "dropoff":
+      return "điểm giao hàng";
+    case "proposedPrice":
+      return "giá đề xuất";
+    default:
+      return displayFieldName(name).toLowerCase();
+  }
+}
+
+function formatMissingFields(missingFields: string[]) {
+  if (missingFields.length === 0) return "";
+  const labels = missingFields.map(displayMissingFieldName);
+  return labels.length === 1
+    ? `Cần thêm ${labels[0]}.`
+    : `Cần thêm: ${labels.join(", ")}.`;
+}
+
+function formatValidationError(error: string) {
+  const normalized = stripDiacritics(error).toLowerCase();
+
+  if (normalized === "eta") return "Cần thêm thời gian.";
+  if (normalized === "deliverytime") return "Cần thêm thời gian giao.";
+  if (normalized === "platenumber") return "Cần thêm biển số xe.";
+  if (normalized === "currentroute") return "Cần thêm tuyến hiện tại.";
+  if (normalized === "cargotype") return "Cần thêm loại hàng.";
+  if (normalized === "category") return "Cần thêm nhóm hàng.";
+  if (normalized === "pickup") return "Cần thêm điểm lấy hàng.";
+  if (normalized === "dropoff") return "Cần thêm điểm giao hàng.";
+  if (normalized.includes("remainingkg > maxcapacitykg")) {
+    return "Tải trọng còn trống không được lớn hơn tải trọng tối đa.";
+  }
+  if (normalized.includes("maxcapacitykg")) {
+    return "Tải trọng tối đa phải lớn hơn 0.";
+  }
+  if (normalized.includes("remainingkg")) {
+    return "Tải trọng còn trống phải lớn hơn hoặc bằng 0.";
+  }
+  if (normalized.includes("weightkg")) {
+    return "Khối lượng phải lớn hơn 0.";
+  }
+  if (normalized.includes("proposedprice")) {
+    return "Giá đề xuất phải lớn hơn 0.";
+  }
+  if (normalized.includes("requiredtempmin > requiredtempmax")) {
+    return "Nhiệt độ yêu cầu tối thiểu không được lớn hơn nhiệt độ tối đa.";
+  }
+  if (normalized.includes("tempmin > tempmax")) {
+    return "Nhiệt độ tối thiểu không được lớn hơn nhiệt độ tối đa.";
+  }
+
+  return error;
+}
+
+function intentLabel(intent: CopilotIntent) {
+  switch (intent) {
+    case "CREATE_TRUCK":
+      return "Tạo xe chở hàng";
+    case "CREATE_SHIPMENT":
+      return "Tạo hàng hóa";
+    default:
+      return "Chưa xác định";
+  }
+}
+
+function statusLabel(status: CopilotStatus) {
+  switch (status) {
+    case "COLLECTING_DATA":
+      return "Đang thu thập dữ liệu";
+    case "VALIDATING":
+      return "Đang kiểm tra dữ liệu";
+    case "AWAITING_APPROVAL":
+      return "Chờ xác nhận";
+    case "EXECUTING":
+      return "Đang gọi API";
+    case "SUCCESS":
+      return "Tạo thành công";
+    case "FAILED":
+      return "Tạo thất bại";
+    case "CANCELLED":
+      return "Đã hủy";
+    default:
+      return "Đang thu thập dữ liệu";
+  }
+}
+
+function stripDiacritics(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+}
+
+function normalizeVoiceTranscript(value: string) {
+  let text = stripDiacritics(value).toLowerCase().replace(/\s+/g, " ").trim();
+
+  const replacements: Array<[RegExp, string]> = [
+    [/^\s*(?:ao|tao|tai)\s+hoa\b/, "Tạo hàng hóa"],
+    [/^\s*(?:tao|tai)\s+hang\s+hoa\b/, "Tạo hàng hóa"],
+    [/^\s*tai\s+hung\s+hoa\b/, "Tạo hàng hóa"],
+    [/^\s*tai\s+van\s+hoa\b/, "Tạo hàng hóa"],
+    [/^\s*ao\s+hoa\b/, "Tạo hàng hóa"],
+    [/\bnhom hang\b/g, "Nhóm hàng"],
+    [/\bvan hoa\b/g, "hàng hóa"],
+    [/\bmung\s+(\d+)\s+thang\b/g, "gồm $1 tấn"],
+    [/\bthuc pham dong thanh\b/g, "Thực phẩm đông lạnh"],
+    [/\bthuc pham dong lanh\b/g, "Thực phẩm đông lạnh"],
+    [/\bca dong lanh\b/g, "có đông lạnh"],
+    [/\bco dong lanh\b/g, "có đông lạnh"],
+    [/\bdong thanh\b/g, "đông lạnh"],
+    [/\bdong lanh\b/g, "đông lạnh"],
+    [/\bcang ca tho hoang\b/g, "Cảng cá Thọ Quang"],
+    [/\btho hoang\b/g, "Thọ Quang"],
+    [/\bhoa khanh\b/g, "Hòa Khánh"],
+    [/\bda nang\b/g, "Đà Nẵng"],
+    [/\bhue\b/g, "Huế"],
+    [/\blay tu\b/g, "lấy tại"],
+    [/\blay o\b/g, "lấy tại"],
+    [/\bghe do\b/g, "giao đến"],
+    [/\bdo den\b/g, "giao đến"],
+    [/\bcho den\b/g, "giao đến"],
+    [/\bra den\b/g, "giao đến"],
+    [/\bgiao vao\b/g, "giao lúc"],
+    [/\bgiao luc\b/g, "giao lúc"],
+    [/\bkhong ghep hang voi cac don hang khac\b/g, "không ghép hàng với các đơn hàng khác"],
+    [/\bkhong ghep voi cac don hang khac\b/g, "không ghép hàng với các đơn hàng khác"],
+    [/\bkhong ghep chung\b/g, "không ghép hàng"],
+    [/\bam\s+(\d+(?:[.,]\d+)?)\s+tuoi\b/g, "âm $1"],
+    [/\bam\s+(\d+(?:[.,]\d+)?)\s+do\b/g, "âm $1 độ"],
+    [/\b(am)\s+(\d+(?:[.,]\d+)?)\s+tuoi\b/g, "âm $2"],
+    [/\b(am)\s+(\d+(?:[.,]\d+)?)\s+do\b/g, "âm $2 độ"],
+    [/\bgia de xuat\b/g, "Giá đề xuất"],
+    [/\bgia de xuat la\b/g, "Giá đề xuất là"],
+  ];
+
+  for (const [pattern, replacement] of replacements) {
+    text = text.replace(pattern, replacement);
+  }
+
+  text = text.replace(/\b(\d{2})\s*(?:xe|x)\s*(\d{5})\b/gi, (_, prefix, serial) => {
+    return `${String(prefix).toUpperCase()}C-${serial.slice(0, 3)}.${serial.slice(3)}`;
+  });
+
+  return text;
 }
 
 function previewFields(context: CopilotContext | null) {
@@ -76,20 +281,27 @@ function previewFields(context: CopilotContext | null) {
       { label: "Biển số", value: data.plateNumber || "—" },
       {
         label: "Tải trọng tối đa",
-        value:
-          data.maxCapacityKg != null ? `${data.maxCapacityKg} kg` : "—",
+        value: data.maxCapacityKg != null ? `${data.maxCapacityKg} kg` : "—",
       },
       {
         label: "Tải trọng còn trống",
         value: data.remainingKg != null ? `${data.remainingKg} kg` : "—",
       },
-      { label: "Xe lạnh", value: data.refrigerated === true ? "Có" : data.refrigerated === false ? "Không" : "—" },
+      {
+        label: "Xe lạnh",
+        value:
+          data.refrigerated === true
+            ? "Có"
+            : data.refrigerated === false
+              ? "Không"
+              : "—",
+      },
       {
         label: "Nhiệt độ",
         value:
           data.tempMin != null || data.tempMax != null
-            ? `${data.tempMin ?? "—"} đến ${data.tempMax ?? "—"} °C`
-            : "—",
+            ? `${data.tempMin ?? "Trống"} đến ${data.tempMax ?? "Trống"} °C`
+            : "Trống",
       },
       { label: "Tuyến hiện tại", value: data.currentRoute || "—" },
       { label: "Thời gian dự kiến đến", value: formatDateTime(data.eta) },
@@ -123,7 +335,8 @@ function previewFields(context: CopilotContext | null) {
       },
       {
         label: "Hàng dễ vỡ",
-        value: data.fragile === true ? "Có" : data.fragile === false ? "Không" : "—",
+        value:
+          data.fragile === true ? "Có" : data.fragile === false ? "Không" : "—",
       },
       {
         label: "Hàng đông lạnh",
@@ -191,35 +404,44 @@ export function TransportCopilot() {
   const [speechError, setSpeechError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
   const liveTranscriptRef = useRef("");
+  const didInitializeRef = useRef(false);
 
   useEffect(() => {
+    if (didInitializeRef.current) return;
+    didInitializeRef.current = true;
+
     let active = true;
 
     const load = async () => {
       try {
-        const current = (await copilotApi.getCurrentSession()) as SessionSnapshot;
+        const current =
+          (await copilotApi.getCurrentSession()) as SessionSnapshot;
+        const reset = (await copilotApi.reset(current.sessionId)) as SessionSnapshot;
         if (!active) return;
 
-        setSessionId(current.sessionId);
+        setSessionId(reset.sessionId);
         const restoredContext: CopilotContext = {
-          intent: current.intent,
-          status: current.status,
-          api: (current.api as "/api/trucks" | "/api/shipments" | null) ?? null,
+          intent: reset.intent ?? "UNKNOWN",
+          status: reset.status ?? "COLLECTING_DATA",
+          api: null,
           method: "POST",
-          data: current.data || {},
-          missingFields: current.missingFields || [],
-          validationErrors: current.validationErrors || [],
-          confirmationMessage: current.confirmationMessage,
-          approved: current.approved,
+          data: {},
+          missingFields: [],
+          validationErrors: [],
+          confirmationMessage: null,
+          approved: false,
         };
         setContext(restoredContext);
-        setMessage(
-          restoredContext.confirmationMessage ||
-            "Phiên Copilot đã sẵn sàng. Hãy nhập nội dung bạn muốn tạo.",
-        );
+        setHistory([]);
+        setInput("");
+        setMessage("Phiên Copilot đã được đặt lại. Hãy nhập nội dung mới.");
       } catch {
         if (!active) return;
-        setMessage("Không tải được phiên Copilot hiện tại.");
+        setSessionId(null);
+        setContext(null);
+        setHistory([]);
+        setInput("");
+        setMessage("Không thể reset phiên Copilot lúc này. Vui lòng thử lại.");
       }
     };
 
@@ -234,7 +456,8 @@ export function TransportCopilot() {
     if (typeof window === "undefined") return;
 
     const supported = Boolean(
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition,
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition,
     );
     setSpeechSupported(supported);
 
@@ -288,36 +511,63 @@ export function TransportCopilot() {
 
     const recognition = new SpeechRecognition();
     recognition.lang = "vi-VN";
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 3;
 
     liveTranscriptRef.current = "";
     setSpeechError(null);
     setIsListening(true);
 
-    recognition.onresult = (event: any) => {
-      let transcript = "";
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        transcript += event.results[i][0].transcript;
-      }
-      liveTranscriptRef.current = transcript.trim();
+    let lastResultTime = Date.now();
+    let silenceTimeout: NodeJS.Timeout | null = null;
+    const maxSilenceDuration = 15000;
+    const maxRecordingDuration = 180000;
+
+    const resetSilenceTimeout = () => {
+      if (silenceTimeout) clearTimeout(silenceTimeout);
+      lastResultTime = Date.now();
+      silenceTimeout = setTimeout(() => {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+      }, maxSilenceDuration);
     };
 
-    recognition.onerror = (event: any) => {
-      setSpeechError(event?.error ? `Voice error: ${event.error}` : "Không thể nhận diện giọng nói.");
-      setIsListening(false);
-      liveTranscriptRef.current = "";
-      recognitionRef.current = null;
+    const recordingTimeout = setTimeout(() => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    }, maxRecordingDuration);
+
+    resetSilenceTimeout();
+
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results)
+        .map((result: any) => result?.[0]?.transcript || "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (transcript) {
+        liveTranscriptRef.current = transcript;
+        resetSilenceTimeout();
+      }
     };
 
     recognition.onend = () => {
       setIsListening(false);
       recognitionRef.current = null;
+      if (silenceTimeout) clearTimeout(silenceTimeout);
+      clearTimeout(recordingTimeout);
 
-      const transcript = liveTranscriptRef.current.trim();
+      const transcript = normalizeVoiceTranscript(
+        liveTranscriptRef.current.trim(),
+      );
       if (transcript) {
-        setInput((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
+        setInput((prev) =>
+          prev.trim() ? `${prev.trim()} ${transcript}` : transcript,
+        );
       }
       liveTranscriptRef.current = "";
     };
@@ -330,6 +580,8 @@ export function TransportCopilot() {
       setSpeechError("Không thể khởi động ghi âm.");
       setIsListening(false);
       recognitionRef.current = null;
+      if (silenceTimeout) clearTimeout(silenceTimeout);
+      clearTimeout(recordingTimeout);
     }
   };
 
@@ -361,7 +613,8 @@ export function TransportCopilot() {
   };
 
   const handleConfirm = async () => {
-    if (!sessionId || !context || context.status !== "AWAITING_APPROVAL") return;
+    if (!sessionId || !context || context.status !== "AWAITING_APPROVAL")
+      return;
 
     setConfirming(true);
     try {
@@ -422,10 +675,10 @@ export function TransportCopilot() {
         approved: result.approved,
       });
       setHistory([]);
-      setMessage("Phiên Copilot đã được reset.");
+      setMessage("Phiên Copilot đã được đặt lại.");
       setInput("");
     } catch (error: any) {
-      setMessage(error?.message || "Không thể reset phiên Copilot.");
+      setMessage(error?.message || "Không thể đặt lại phiên Copilot.");
     } finally {
       setLoading(false);
     }
@@ -433,22 +686,24 @@ export function TransportCopilot() {
 
   const canConfirm = context?.status === "AWAITING_APPROVAL" && !confirming;
   const previewItems = previewFields(context);
-  const parsedFields = previewItems.filter((field) => field.value !== "â€”").length;
+  const parsedFields = previewItems.filter(
+    (field) => field.value !== "—" && field.value !== "Trống",
+  ).length;
 
   return (
     <Card className="border-l-4 border-l-indigo-500 bg-gradient-to-br from-indigo-50 to-white">
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <CardTitle>Transport Copilot</CardTitle>
+            <CardTitle>Copilot vận tải</CardTitle>
             <CardDescription>
-              Tạo mới xe chở hàng hoặc hàng hóa bằng hội thoại. Copilot lưu
-              session để bạn tiếp tục nhiều lượt mà không mất dữ liệu.
+              Tạo mới xe chở hàng hoặc hàng hóa bằng hội thoại. Copilot lưu phiên
+              để bạn tiếp tục nhiều lượt mà không mất dữ liệu.
             </CardDescription>
           </div>
           {context && (
             <Badge className={statusTone(context.status)}>
-              {context.status}
+              {statusLabel(context.status)}
             </Badge>
           )}
         </div>
@@ -457,15 +712,13 @@ export function TransportCopilot() {
       <CardContent className="space-y-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span>Session: {sessionId || "—"}</span>
+            <span>Phiên: {sessionId || "—"}</span>
             <span>•</span>
-            <span>Intent: {context?.intent || "UNKNOWN"}</span>
+            <span>Ý định: {context ? intentLabel(context.intent) : "Chưa xác định"}</span>
             <span>•</span>
             <span>API: {context?.api || "—"}</span>
             <span>•</span>
-            <span>
-              Voice: {speechSupported ? "Hỗ trợ" : "Không hỗ trợ"}
-            </span>
+            <span>Giọng nói: {speechSupported ? "Hỗ trợ" : "Không hỗ trợ"}</span>
           </div>
 
           <textarea
@@ -532,12 +785,12 @@ export function TransportCopilot() {
           )}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr] lg:items-stretch">
+          <div className="flex h-full min-h-[520px] flex-col rounded-2xl border border-slate-200 bg-white p-4">
             <div className="mb-3 text-sm font-semibold text-slate-900">
               Trò chuyện
             </div>
-            <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+            <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
               {history.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
                   Chưa có hội thoại nào. Nhập yêu cầu ở trên để bắt đầu.
@@ -559,27 +812,27 @@ export function TransportCopilot() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex h-full min-h-[520px] flex-col rounded-2xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">
                 Xem trước dữ liệu
               </div>
-              {context?.confirmationMessage && (
-                <Badge className="border border-amber-200 bg-amber-50 text-amber-700">
-                  Chờ xác nhận
+              {context && (
+                <Badge className={statusTone(context.status)}>
+                  {statusLabel(context.status)}
                 </Badge>
               )}
             </div>
 
             {context ? (
-              <div className="space-y-4">
+              <div className="flex flex-1 min-h-0 flex-col space-y-4">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                     <div className="text-[11px] uppercase tracking-wide text-slate-500">
-                      Intent
+                      Ý định
                     </div>
                     <div className="mt-1 text-sm font-semibold text-slate-900">
-                      {context.intent}
+                      {intentLabel(context.intent)}
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -587,12 +840,12 @@ export function TransportCopilot() {
                       Trạng thái
                     </div>
                     <div className="mt-1 text-sm font-semibold text-slate-900">
-                      {context.status}
+                      {statusLabel(context.status)}
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                     <div className="text-[11px] uppercase tracking-wide text-slate-500">
-                      Đã parse
+                      Đã phân tích
                     </div>
                     <div className="mt-1 text-sm font-semibold text-slate-900">
                       {parsedFields}/{previewItems.length}
@@ -612,7 +865,9 @@ export function TransportCopilot() {
                       key={field.label}
                       className="rounded-xl border border-slate-200 bg-slate-50/70 p-3"
                     >
-                      <div className="text-xs text-slate-500">{field.label}</div>
+                      <div className="text-xs text-slate-500">
+                        {field.label}
+                      </div>
                       <div className="mt-1 text-sm font-semibold text-slate-900">
                         {field.value}
                       </div>
@@ -622,15 +877,15 @@ export function TransportCopilot() {
 
                 {context.missingFields.length > 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    <div className="mb-1 font-semibold">Thiếu dữ liệu</div>
-                    <div>{context.missingFields.join(", ")}</div>
+                    <div className="mb-1 font-semibold">Cần bổ sung</div>
+                    <div>{formatMissingFields(context.missingFields)}</div>
                   </div>
                 )}
 
                 {context.validationErrors.length > 0 && (
                   <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                     <div className="mb-1 font-semibold">Lỗi kiểm tra</div>
-                    <div>{context.validationErrors.join("; ")}</div>
+                    <div>{context.validationErrors.map(formatValidationError).join("; ")}</div>
                   </div>
                 )}
 
@@ -655,3 +910,4 @@ export function TransportCopilot() {
     </Card>
   );
 }
+

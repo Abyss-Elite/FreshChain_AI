@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { shipmentsApi } from "@/lib/api";
-import { vnd } from "@/lib/utils";
+import { normalizeSearchText, vnd } from "@/lib/utils";
+
+const PAGE_SIZE = 8;
 
 // Định nghĩa chuẩn hóa mảng trạng thái viết hoa từ Prisma Backend
 const statuses = [
@@ -34,29 +39,42 @@ const getStatusBadge = (status: string) => {
 
 export default function OrdersPage() {
   const [shipments, setShipments] = useState<any[]>([]);
-  const [filteredShipments, setFilteredShipments] = useState<any[]>([]);
   const [activeFilter, setActiveFilter] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     shipmentsApi
       .getAll()
-      .then((data) => {
-        setShipments(data || []);
-        setFilteredShipments(data || []);
-      })
+      .then((data) => setShipments(data || []))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  // Bộ lọc Client-side tương tác mượt mà
+  const filteredShipments = useMemo(() => {
+    const query = normalizeSearchText(search.trim());
+    return shipments.filter((s) => {
+      const matchesStatus = activeFilter === "ALL" || s.status === activeFilter;
+      const matchesQuery =
+        !query ||
+        normalizeSearchText(s.id).includes(query) ||
+        normalizeSearchText(s.cargoType).includes(query) ||
+        normalizeSearchText(s.pickup).includes(query) ||
+        normalizeSearchText(s.dropoff).includes(query);
+      return matchesStatus && matchesQuery;
+    });
+  }, [shipments, activeFilter, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredShipments.length / PAGE_SIZE));
+  const paginatedShipments = filteredShipments.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const handleFilter = (statusKey: string) => {
     setActiveFilter(statusKey);
-    if (statusKey === "ALL") {
-      setFilteredShipments(shipments);
-    } else {
-      setFilteredShipments(shipments.filter((s) => s.status === statusKey));
-    }
   };
 
   return (
@@ -71,6 +89,16 @@ export default function OrdersPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="relative mb-4 max-w-xs">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm mã đơn, loại hàng, tuyến đường..."
+              className="pl-9"
+            />
+          </div>
+
           {/* Bộ lọc trạng thái thông minh */}
           <div className="mb-6 flex flex-wrap gap-2">
             {statuses.map((s) => (
@@ -99,7 +127,7 @@ export default function OrdersPage() {
             </div>
           ) : filteredShipments.length === 0 ? (
             <div className="text-center py-12 text-sm text-slate-400 border border-dashed rounded-lg">
-              Không tìm thấy đơn hàng nào thuộc trạng thái này.
+              Không tìm thấy đơn hàng phù hợp.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -116,7 +144,7 @@ export default function OrdersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredShipments.map((s) => (
+                  {paginatedShipments.map((s) => (
                     <tr
                       key={s.id}
                       className="hover:bg-slate-50/80 transition-colors"
@@ -152,6 +180,15 @@ export default function OrdersPage() {
                   ))}
                 </tbody>
               </table>
+              <div className="px-4">
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  totalItems={filteredShipments.length}
+                  pageSize={PAGE_SIZE}
+                />
+              </div>
             </div>
           )}
         </CardContent>

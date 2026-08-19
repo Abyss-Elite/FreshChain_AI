@@ -26,7 +26,17 @@ async function apiCall(endpoint: string, options: RequestOptions = {}) {
       const parsed = JSON.parse(rawMessage);
       message = parsed.message || parsed.issues?.[0]?.message || rawMessage;
     } catch {
-      message = rawMessage;
+      const htmlMatch = rawMessage.match(/<pre>([\s\S]*?)<\/pre>/i);
+      if (htmlMatch?.[1]) {
+        message = htmlMatch[1].replace(/\s+/g, " ").trim();
+      } else if (/^<!doctype html>|^<html/i.test(rawMessage.trim())) {
+        message = "Không thể thực hiện thao tác này. Vui lòng thử lại sau.";
+      } else {
+        message = rawMessage;
+      }
+    }
+    if (/^Cannot DELETE /i.test(message)) {
+      message = "Không thể xóa dữ liệu lúc này. Vui lòng tải lại trang hoặc thử lại sau.";
     }
     throw new Error(message || `Lỗi API: ${response.statusText}`);
   }

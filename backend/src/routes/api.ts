@@ -704,7 +704,20 @@ apiRouter.delete(
       throw new HttpError(403, "Bạn không có quyền xóa đơn hàng này");
     }
 
-    await prisma.shipment.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.deal.deleteMany({
+        where: { shipmentId: id },
+      });
+
+      await tx.match.deleteMany({
+        where: { shipmentId: id },
+      });
+
+      await tx.shipment.delete({
+        where: { id },
+      });
+    });
+
     res.status(204).send();
   }),
 );
@@ -738,6 +751,24 @@ apiRouter.patch(
     });
 
     res.json(updatedTruck);
+  }),
+);
+
+apiRouter.delete(
+  "/trucks/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    const truck = await prisma.truck.findUnique({ where: { id } });
+    if (!truck) throw new HttpError(404, "Không tìm thấy thông tin xe");
+
+    if (truck.ownerId !== req.user!.id && req.user!.role !== "ADMIN") {
+      throw new HttpError(403, "Bạn không có quyền xóa xe này");
+    }
+
+    await prisma.truck.delete({ where: { id } });
+    res.status(204).send();
   }),
 );
 

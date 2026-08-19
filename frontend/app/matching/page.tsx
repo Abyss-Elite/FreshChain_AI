@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import {
   CheckCircle,
@@ -8,6 +8,7 @@ import {
   MessageSquare,
   RefreshCw,
   Scale,
+  Search,
   Truck,
   XCircle,
   AlertTriangle,
@@ -18,10 +19,25 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useUser } from "@/contexts/user-context";
 import { negotiationApi, matchingApi } from "@/lib/api";
-import { onlyDigits, vnd } from "@/lib/utils";
+import { normalizeSearchText, onlyDigits, vnd } from "@/lib/utils";
 import { MatchesSection } from "@/components/matches-section";
+
+const SIDEBAR_PAGE_SIZE = 5;
+
+const shipmentStatusLabel: Record<string, string> = {
+  PENDING: "Chờ xử lý",
+  MATCHING: "Đang tìm xe",
+};
 
 type DealStatus = "PROPOSED" | "COUNTERED" | "ACCEPTED" | "REJECTED";
 
@@ -52,12 +68,52 @@ export default function MatchingPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [sidebarSearch, setSidebarSearch] = useState("");
+  const [sidebarStatusFilter, setSidebarStatusFilter] = useState("all");
+  const [sidebarPage, setSidebarPage] = useState(1);
 
   const isTruckOwner = context?.role === "SHIPPER";
   const items = isTruckOwner
     ? context?.myTrucks || []
     : context?.myShipments || [];
   const selectedItem = items.find((item: any) => item.id === selectedId);
+
+  const filteredItems = useMemo(() => {
+    const query = normalizeSearchText(sidebarSearch.trim());
+    return items.filter((item: any) => {
+      const matchesQuery = isTruckOwner
+        ? !query ||
+          normalizeSearchText(item.plateNumber).includes(query) ||
+          normalizeSearchText(item.type).includes(query) ||
+          normalizeSearchText(item.currentRoute).includes(query)
+        : !query ||
+          normalizeSearchText(item.cargoType).includes(query) ||
+          normalizeSearchText(item.pickup).includes(query) ||
+          normalizeSearchText(item.dropoff).includes(query);
+
+      const matchesStatus = isTruckOwner
+        ? sidebarStatusFilter === "all" ||
+          (sidebarStatusFilter === "active"
+            ? item.active !== false
+            : item.active === false)
+        : sidebarStatusFilter === "all" || item.status === sidebarStatusFilter;
+
+      return matchesQuery && matchesStatus;
+    });
+  }, [items, sidebarSearch, sidebarStatusFilter, isTruckOwner]);
+
+  useEffect(() => {
+    setSidebarPage(1);
+  }, [sidebarSearch, sidebarStatusFilter, isTruckOwner]);
+
+  const sidebarTotalPages = Math.max(
+    1,
+    Math.ceil(filteredItems.length / SIDEBAR_PAGE_SIZE),
+  );
+  const paginatedItems = filteredItems.slice(
+    (sidebarPage - 1) * SIDEBAR_PAGE_SIZE,
+    sidebarPage * SIDEBAR_PAGE_SIZE,
+  );
 
   const priceKey = (shipmentId: string, truckId: string) =>
     `${shipmentId}:${truckId}`;
@@ -307,13 +363,77 @@ export default function MatchingPage() {
                 : "Bạn chưa có đơn hàng nào đang chờ ghép."}
             </Card>
           ) : (
-            <CardLayout
-              items={items}
-              selectedId={selectedId}
-              isTruckOwner={isTruckOwner}
-              setDetail={setDetail}
-              setSelectedId={setSelectedId}
-            />
+            <>
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search
+                    size={15}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <Input
+                    value={sidebarSearch}
+                    onChange={(e) => setSidebarSearch(e.target.value)}
+                    placeholder={
+                      isTruckOwner
+                        ? "Tìm biển số, loại xe, tuyến..."
+                        : "Tìm loại hàng, điểm đi, điểm đến..."
+                    }
+                    className="pl-9"
+                  />
+                </div>
+                <Select
+                  value={sidebarStatusFilter}
+                  onValueChange={setSidebarStatusFilter}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Trạng thái" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tất cả trạng thái</SelectItem>
+                    {isTruckOwner ? (
+                      <>
+                        <SelectItem value="active">Hoạt động</SelectItem>
+                        <SelectItem value="paused">Tạm dừng</SelectItem>
+                      </>
+                    ) : (
+                      Object.entries(shipmentStatusLabel).map(
+                        ([key, label]) => (
+                          <SelectItem key={key} value={key}>
+                            {label}
+                          </SelectItem>
+                        ),
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {filteredItems.length === 0 ? (
+                <Card className="border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                  Không tìm thấy {isTruckOwner ? "xe" : "đơn hàng"} phù hợp
+                  với bộ lọc hiện tại.
+                </Card>
+              ) : (
+                <>
+                  <CardLayout
+                    items={paginatedItems}
+                    selectedId={selectedId}
+                    isTruckOwner={isTruckOwner}
+                    onSelect={(id: string) => {
+                      setSelectedId(id);
+                      loadDetail(id);
+                    }}
+                  />
+                  <Pagination
+                    page={sidebarPage}
+                    totalPages={sidebarTotalPages}
+                    onPageChange={setSidebarPage}
+                    totalItems={filteredItems.length}
+                    pageSize={SIDEBAR_PAGE_SIZE}
+                  />
+                </>
+              )}
+            </>
           )}
         </div>
 
@@ -406,8 +526,7 @@ function CardLayout({
   items,
   selectedId,
   isTruckOwner,
-  setDetail,
-  setSelectedId,
+  onSelect,
 }: any) {
   return items.map((item: any) => {
     const active = item.id === selectedId;
@@ -419,10 +538,7 @@ function CardLayout({
             ? "border-emerald-400 bg-emerald-50"
             : "border-slate-200 bg-white hover:border-slate-300"
         }`}
-        onClick={() => {
-          setDetail(null);
-          setSelectedId(item.id);
-        }}
+        onClick={() => onSelect(item.id)}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

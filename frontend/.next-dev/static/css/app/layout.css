@@ -645,6 +645,9 @@ body {
 .left-10{
   left: 2.5rem;
 }
+.left-3{
+  left: 0.75rem;
+}
 .left-8{
   left: 2rem;
 }
@@ -911,11 +914,11 @@ body {
 .h-px{
   height: 1px;
 }
-.max-h-72{
-  max-height: 18rem;
-}
 .max-h-\[420px\]{
   max-height: 420px;
+}
+.min-h-0{
+  min-height: 0px;
 }
 .min-h-24{
   min-height: 6rem;
@@ -928,6 +931,9 @@ body {
 }
 .min-h-\[400px\]{
   min-height: 400px;
+}
+.min-h-\[520px\]{
+  min-height: 520px;
 }
 .min-h-\[calc\(100vh-76px\)\]{
   min-height: calc(100vh - 76px);
@@ -996,6 +1002,9 @@ body {
 .min-w-36{
   min-width: 9rem;
 }
+.min-w-8{
+  min-width: 2rem;
+}
 .min-w-\[240px\]{
   min-width: 240px;
 }
@@ -1052,10 +1061,6 @@ body {
 }
 .translate-x-0{
   --tw-translate-x: 0px;
-  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
-}
-.rotate-180{
-  --tw-rotate: 180deg;
   transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
 }
 @keyframes ping{
@@ -1519,9 +1524,6 @@ body {
 .bg-emerald-500\/10{
   background-color: rgb(16 185 129 / 0.1);
 }
-.bg-emerald-500\/15{
-  background-color: rgb(16 185 129 / 0.15);
-}
 .bg-emerald-600{
   --tw-bg-opacity: 1;
   background-color: rgb(5 150 105 / var(--tw-bg-opacity, 1));
@@ -1854,6 +1856,9 @@ body {
 }
 .pl-3{
   padding-left: 0.75rem;
+}
+.pl-9{
+  padding-left: 2.25rem;
 }
 .pr-1{
   padding-right: 0.25rem;
@@ -2323,6 +2328,9 @@ body {
 .duration-200{
   animation-duration: 200ms;
 }
+.paused{
+  animation-play-state: paused;
+}
 
 .placeholder\:text-muted-foreground::-moz-placeholder{
   color: hsl(var(--muted-foreground));
@@ -2759,8 +2767,17 @@ body {
   .sm\:h-9{
     height: 2.25rem;
   }
+  .sm\:w-40{
+    width: 10rem;
+  }
+  .sm\:w-48{
+    width: 12rem;
+  }
   .sm\:w-6{
     width: 1.5rem;
+  }
+  .sm\:max-w-xs{
+    max-width: 20rem;
   }
   .sm\:grid-cols-2{
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2916,6 +2933,9 @@ body {
   }
   .lg\:items-start{
     align-items: flex-start;
+  }
+  .lg\:items-stretch{
+    align-items: stretch;
   }
   .lg\:justify-between{
     justify-content: space-between;

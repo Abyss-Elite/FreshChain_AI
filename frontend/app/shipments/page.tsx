@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Edit2, Loader2, Package, Plus, Trash2 } from "lucide-react";
+import { Edit2, Loader2, Package, Plus, Search, Trash2 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Pagination } from "@/components/ui/pagination";
 import {
   Select,
   SelectContent,
@@ -27,8 +28,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { shipmentsApi } from "@/lib/api";
-import { onlyDigits, vnd } from "@/lib/utils";
+import { normalizeSearchText, onlyDigits, vnd } from "@/lib/utils";
 import { vietnamLogisticsLocations } from "@/lib/vietnam-locations";
+
+const PAGE_SIZE = 6;
 
 type ShipmentForm = {
   cargoType: string;
@@ -94,6 +97,9 @@ export default function ShipmentsPage() {
   const [form, setForm] = useState<ShipmentForm>(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
 
   const loadShipments = async () => {
     try {
@@ -109,6 +115,30 @@ export default function ShipmentsPage() {
   useEffect(() => {
     loadShipments();
   }, []);
+
+  const filteredShipments = useMemo(() => {
+    const query = normalizeSearchText(search.trim());
+    return shipments.filter((shipment) => {
+      const matchesQuery =
+        !query ||
+        normalizeSearchText(shipment.cargoType).includes(query) ||
+        normalizeSearchText(shipment.pickup).includes(query) ||
+        normalizeSearchText(shipment.dropoff).includes(query);
+      const matchesStatus =
+        statusFilter === "all" || shipment.status === statusFilter;
+      return matchesQuery && matchesStatus;
+    });
+  }, [shipments, search, statusFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredShipments.length / PAGE_SIZE));
+  const paginatedShipments = filteredShipments.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
 
   const openCreate = () => {
     setEditing(null);
@@ -231,7 +261,27 @@ export default function ShipmentsPage() {
         </p>
       </div>
 
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1 sm:max-w-xs">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Tìm loại hàng, điểm đi, điểm đến..."
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="Trạng thái" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả trạng thái</SelectItem>
+              {Object.entries(statusLabel).map(([key, value]) => (
+                <SelectItem key={key} value={key}>{value.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <Button
           className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700"
           onClick={openCreate}
@@ -257,9 +307,13 @@ export default function ShipmentsPage() {
             Tạo đơn đầu tiên
           </Button>
         </Card>
+      ) : filteredShipments.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">
+          Không tìm thấy đơn hàng phù hợp với bộ lọc hiện tại.
+        </div>
       ) : (
         <div className="space-y-3">
-          {shipments.map((shipment) => {
+          {paginatedShipments.map((shipment) => {
             const status = statusLabel[shipment.status] || {
               label: shipment.status,
               tone: "slate" as const,
@@ -370,6 +424,13 @@ export default function ShipmentsPage() {
               </Card>
             );
           })}
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            totalItems={filteredShipments.length}
+            pageSize={PAGE_SIZE}
+          />
         </div>
       )}
 

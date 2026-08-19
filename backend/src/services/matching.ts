@@ -162,7 +162,7 @@ function normalizeCity(raw: string): string {
     .replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 }
 
-/** Tr�ch xu?t danh s�ch th�nh ph? t? chu?i route "A -> B -> C" */
+/** Tr�ch xu?t danh s�ch th�nh ph? t? chu?i route "A -> B -> C" */
 function parseRouteStops(route: string): string[] {
   const normalizedRoute = stripDiacritics(route)
     .toLowerCase()
@@ -182,6 +182,57 @@ function routeDistance(pickup: string, dropoff: string): number {
   return cityDistance[from]?.[to] ?? cityDistance[to]?.[from] ?? 420;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 3b. CITY GRAPH — nối các CORRIDOR rời rạc qua điểm chung (VD: TP.HCM)
+//     để tuyến xe đi xuyên nhiều hành lang (VD: Đà Nẵng → Cà Mau, đi ngang
+//     qua TP.HCM) vẫn nhận diện đúng các điểm dừng trung gian.
+// ─────────────────────────────────────────────────────────────────────────────
+const CITY_GRAPH: Map<string, Set<string>> = (() => {
+  const graph = new Map<string, Set<string>>();
+  const addEdge = (a: string, b: string) => {
+    if (!graph.has(a)) graph.set(a, new Set());
+    if (!graph.has(b)) graph.set(b, new Set());
+    graph.get(a)!.add(b);
+    graph.get(b)!.add(a);
+  };
+  for (const corridor of CORRIDORS) {
+    for (let i = 0; i < corridor.length - 1; i += 1) {
+      addEdge(corridor[i], corridor[i + 1]);
+    }
+  }
+  return graph;
+})();
+
+/** Tìm đường đi thực tế (theo thứ tự các điểm dừng) từ `from` đến `to`,
+ *  có thể xuyên qua nhiều CORRIDOR nối tiếp nhau. Trả về null nếu không có
+ *  đường đi nào nối liền hai điểm. */
+function findCorridorPath(from: string, to: string): string[] | null {
+  if (from === to) return [from];
+  if (!CITY_GRAPH.has(from) || !CITY_GRAPH.has(to)) return null;
+
+  const queue: string[][] = [[from]];
+  const visited = new Set<string>([from]);
+  while (queue.length > 0) {
+    const path = queue.shift()!;
+    const last = path[path.length - 1];
+    for (const neighbor of CITY_GRAPH.get(last) ?? []) {
+      if (neighbor === to) return [...path, neighbor];
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        queue.push([...path, neighbor]);
+      }
+    }
+  }
+  return null;
+}
+
+function corridorPathDistance(path: string[]): number {
+  let total = 0;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    total += routeDistance(path[i], path[i + 1]);
+  }
+  return total;
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,48 +276,17 @@ export function isRouteCompatible(shipment: Shipment, truck: Truck): boolean {
     if (pIdx !== -1 && dIdx !== -1 && pIdx < dIdx) return true;
   }
 
-  // ── C) Sub-segment qua CORRIDOR địa lý ───────────────────────────────────
-  for (const corridor of CORRIDORS) {
-    const truckFromIdx = corridor.indexOf(truckFrom);
-    const truckToIdx = corridor.indexOf(truckTo);
-    const shipPickupIdx = corridor.indexOf(shipPickup);
-    const shipDropoffIdx = corridor.indexOf(shipDropoff);
-
-    // Tất cả 4 điểm phải thuộc cùng corridor
+  // ── C) Sub-segment qua CORRIDOR địa lý (có thể nối nhiều corridor qua điểm chung) ──
+  const corridorPath = findCorridorPath(truckFrom, truckTo);
+  if (corridorPath) {
+    const shipPickupIdx = corridorPath.indexOf(shipPickup);
+    const shipDropoffIdx = corridorPath.indexOf(shipDropoff);
     if (
-      truckFromIdx === -1 ||
-      truckToIdx === -1 ||
-      shipPickupIdx === -1 ||
-      shipDropoffIdx === -1
-    )
-      continue;
-
-    // Xác định chiều đi của xe (xuôi / ngược)
-    const truckForward = truckFromIdx <= truckToIdx;
-
-    if (truckForward) {
-      // Xe đi xuôi: pickup và dropoff của đơn phải nằm trong đoạn [truckFrom, truckTo]
-      // VÀ pickup phải đứng trước dropoff theo chiều xuôi
-      if (
-        shipPickupIdx >= truckFromIdx &&
-        shipPickupIdx <= truckToIdx &&
-        shipDropoffIdx >= truckFromIdx &&
-        shipDropoffIdx <= truckToIdx &&
-        shipPickupIdx < shipDropoffIdx
-      ) {
-        return true;
-      }
-    } else {
-      // Xe đi ngược (từ Nam lên Bắc): tương tự nhưng đảo chiều
-      if (
-        shipPickupIdx <= truckFromIdx &&
-        shipPickupIdx >= truckToIdx &&
-        shipDropoffIdx <= truckFromIdx &&
-        shipDropoffIdx >= truckToIdx &&
-        shipPickupIdx > shipDropoffIdx
-      ) {
-        return true;
-      }
+      shipPickupIdx !== -1 &&
+      shipDropoffIdx !== -1 &&
+      shipPickupIdx < shipDropoffIdx
+    ) {
+      return true;
     }
   }
 
@@ -294,8 +314,12 @@ function routeCompatibilityScore(shipment: Shipment, truck: Truck): number {
   const dIdx = truckStops.indexOf(shipDropoff);
   if (pIdx !== -1 && dIdx !== -1) return 92;
 
-  // Sub-segment qua corridor: giảm điểm theo tỷ lệ "đoạn đơn / tổng tuyến xe"
-  const totalDist = routeDistance(truckFrom, truckTo) || 1;
+  // Sub-segment qua corridor (có thể nối nhiều corridor): giảm điểm theo
+  // tỷ lệ "đoạn đơn / tổng tuyến xe", tính theo đường đi thực tế nếu có.
+  const corridorPath = findCorridorPath(truckFrom, truckTo);
+  const totalDist = corridorPath
+    ? corridorPathDistance(corridorPath) || 1
+    : routeDistance(truckFrom, truckTo) || 1;
   const segmentDist = routeDistance(shipPickup, shipDropoff);
   const coverage = Math.min(segmentDist / totalDist, 1);
   // Điểm dao động 60–88 tuỳ mức phủ
