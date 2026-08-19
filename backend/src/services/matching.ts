@@ -339,8 +339,8 @@ function isTemperatureCompatible(shipment: Shipment, truck: Truck): boolean {
 
   if (truck.refrigerated && truck.tempMin != null && truck.tempMax != null) {
     return (
-      truck.tempMin <= shipment.requiredTempMin &&
-      truck.tempMax >= shipment.requiredTempMax
+      shipment.requiredTempMin <= truck.tempMin &&
+      shipment.requiredTempMax >= truck.tempMax
     );
   }
 

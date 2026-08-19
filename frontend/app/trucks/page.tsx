@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Edit2, Loader2, Plus, Search, Trash2, Truck } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -63,7 +63,25 @@ function splitRoute(route?: string) {
 }
 
 export default function TrucksPage() {
+  return (
+    <Suspense
+      fallback={
+        <DashboardShell>
+          <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
+            <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+            Đang tải dữ liệu xe...
+          </div>
+        </DashboardShell>
+      }
+    >
+      <TrucksContent />
+    </Suspense>
+  );
+}
+
+function TrucksContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [trucks, setTrucks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -72,8 +90,9 @@ export default function TrucksPage() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [coolingFilter, setCoolingFilter] = useState("all");
+  const [capacityFilter, setCapacityFilter] = useState(searchParams.get("capacity") || "all");
   const [page, setPage] = useState(1);
 
   const loadTrucks = async () => {
@@ -108,13 +127,16 @@ export default function TrucksPage() {
       const matchesCooling =
         coolingFilter === "all" ||
         (coolingFilter === "cooling" ? Boolean(truck.refrigerated) : !truck.refrigerated);
-      return matchesQuery && matchesStatus && matchesCooling;
+      const matchesCapacity =
+        capacityFilter === "all" ||
+        (capacityFilter === "empty" ? truck.remainingKg > 1000 : truck.remainingKg <= 1000);
+      return matchesQuery && matchesStatus && matchesCooling && matchesCapacity;
     });
-  }, [trucks, search, statusFilter, coolingFilter]);
+  }, [trucks, search, statusFilter, coolingFilter, capacityFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, coolingFilter]);
+  }, [search, statusFilter, coolingFilter, capacityFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTrucks.length / PAGE_SIZE));
   const paginatedTrucks = filteredTrucks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -240,6 +262,14 @@ export default function TrucksPage() {
               <SelectItem value="all">Tất cả loại xe</SelectItem>
               <SelectItem value="cooling">Xe lạnh</SelectItem>
               <SelectItem value="normal">Xe thường</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={capacityFilter} onValueChange={setCapacityFilter}>
+            <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Tải trọng" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tất cả tải trọng</SelectItem>
+              <SelectItem value="empty">Còn tải trống</SelectItem>
+              <SelectItem value="full">Đã đầy tải</SelectItem>
             </SelectContent>
           </Select>
         </div>

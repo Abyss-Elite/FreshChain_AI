@@ -6,6 +6,7 @@ import {
   inferShipmentDraftNormalized,
   inferTruckDraftNormalized,
   isTruckTemperatureSensitive,
+  validateShipmentDraft,
 } from "../transportCopilot.js";
 
 test("parses the truck sample input with Vietnamese accents and relative time", () => {
@@ -84,6 +85,46 @@ test("extracts an explicit shipment category from the phrase nhom hang", () => {
   assert.equal(draft.weightKg, 2000);
   assert.equal(draft.proposedPrice, 3000000);
   assert.equal(draft.allowCombine, false);
+});
+
+test("parses 'di tu X den Y' route phrasing even when a temperature range with 'den' comes first", () => {
+  const currentDateTime = new Date("2026-08-10T08:00:00+07:00");
+  const draft = inferShipmentDraftNormalized(
+    "Tao hang hoa gom tom dong lanh 30kg, nhiet do tu 10 den 15 do C, di tu Da Nang den Ca Mau, gia de xuat 200 nghin",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.requiredTempMin, 10);
+  assert.equal(draft.requiredTempMax, 15);
+  assert.equal(draft.pickup, "Đà Nẵng");
+  assert.equal(draft.dropoff, "Cà Mau");
+});
+
+test("flags a shipment location that is not in the supported location list", () => {
+  const currentDateTime = new Date("2026-08-10T08:00:00+07:00");
+  const draft = inferShipmentDraftNormalized(
+    "Tao hang hoa gom tom dong lanh 30kg, nhiet do tu 10 den 15 do C, di tu Da Nang den Da Lat, gia de xuat 200 nghin, giao luc 8 gio sang mai",
+    currentDateTime,
+    {},
+  );
+
+  assert.equal(draft.pickup, "Đà Nẵng");
+  // "Đà Lạt" is not in the supported province list, so it falls through unnormalized.
+  assert.equal(draft.dropoff, "da lat");
+
+  const validation = validateShipmentDraft(draft);
+  assert.equal(validation.missingFields.length, 0);
+  assert.ok(
+    validation.validationErrors.some((error) =>
+      error.includes("Địa điểm giao hàng"),
+    ),
+  );
+  assert.ok(
+    !validation.validationErrors.some((error) =>
+      error.includes("Địa điểm lấy hàng"),
+    ),
+  );
 });
 
 test("infers the fruit category for fruit shipments", () => {

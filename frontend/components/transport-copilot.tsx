@@ -197,7 +197,7 @@ function statusLabel(status: CopilotStatus) {
     case "AWAITING_APPROVAL":
       return "Chờ xác nhận";
     case "EXECUTING":
-      return "Đang gọi API";
+      return "Đang tạo dữ liệu";
     case "SUCCESS":
       return "Tạo thành công";
     case "FAILED":
@@ -712,11 +712,7 @@ export function TransportCopilot() {
       <CardContent className="space-y-5">
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span>Phiên: {sessionId || "—"}</span>
-            <span>•</span>
             <span>Ý định: {context ? intentLabel(context.intent) : "Chưa xác định"}</span>
-            <span>•</span>
-            <span>API: {context?.api || "—"}</span>
             <span>•</span>
             <span>Giọng nói: {speechSupported ? "Hỗ trợ" : "Không hỗ trợ"}</span>
           </div>

@@ -25,16 +25,17 @@ export default function CreateOrderWithAIPage() {
                     nhận trước khi gửi.
                   </h1>
                   <p className="max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-                    Copilot lấy dữ liệu từ phiên đăng nhập, tự nhận dạng ý định,
-                    chuẩn hóa thông tin, yêu cầu bổ sung nếu thiếu, hiển thị bản
-                    xem trước và chỉ gọi API sau khi bạn xác nhận rõ ràng.
+                    Copilot tự nhận biết bạn là ai, hiểu ý bạn muốn tạo xe hay
+                    tạo hàng hóa, chuẩn hóa thông tin bạn cung cấp, hỏi lại nếu
+                    còn thiếu, cho bạn xem trước toàn bộ nội dung và chỉ tạo mới
+                    sau khi bạn xác nhận rõ ràng.
                   </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    <div className="font-semibold">Lưu trạng thái</div>
-                    <div>Giữ session qua nhiều lượt</div>
+                    <div className="font-semibold">Nhớ ngữ cảnh</div>
+                    <div>Trò chuyện nhiều lượt không bị mất nội dung</div>
                   </div>
                   <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
                     <div className="font-semibold">An toàn</div>
@@ -57,16 +58,16 @@ export default function CreateOrderWithAIPage() {
                       desc: "Bạn nói hoặc gõ yêu cầu tự nhiên về xe hoặc hàng hóa.",
                     },
                     {
-                      title: "2. Copilot lưu phiên",
-                      desc: "Backend giữ intent, data, status và approved để không mất ngữ cảnh.",
+                      title: "2. Ghi nhớ hội thoại",
+                      desc: "Copilot tự động lưu lại những gì bạn đã cung cấp, kể cả khi bạn tạm dừng rồi quay lại sau.",
                     },
                     {
                       title: "3. Xem trước",
-                      desc: "Copilot kiểm tra dữ liệu thiếu, chuẩn hóa và dựng bản preview.",
+                      desc: "Copilot kiểm tra thông tin còn thiếu, chuẩn hóa dữ liệu và cho bạn xem trước toàn bộ nội dung.",
                     },
                     {
                       title: "4. Xác nhận tạo",
-                      desc: "Chỉ sau khi bạn đồng ý, hệ thống mới gọi POST /api/trucks hoặc /api/shipments.",
+                      desc: "Chỉ sau khi bạn đồng ý, hệ thống mới chính thức tạo xe hoặc đơn hàng mới.",
                     },
                   ].map((step) => (
                     <div
@@ -96,8 +97,8 @@ export default function CreateOrderWithAIPage() {
                 </p>
               </div>
               <ul className="space-y-1 text-sm text-blue-800">
-                <li>• Không cần nhập ownerId, userId, role, accessToken</li>
-                <li>• Hệ thống tự lấy thông tin người dùng từ phiên đăng nhập</li>
+                <li>• Không cần nhập thông tin tài khoản hay bất kỳ mã kỹ thuật nào</li>
+                <li>• Hệ thống tự nhận biết bạn là ai từ phiên đăng nhập hiện tại</li>
                 <li>• Nếu thiếu dữ liệu, Copilot sẽ hỏi tiếp thay vì tự bịa</li>
               </ul>
             </div>

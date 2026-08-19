@@ -2213,6 +2213,10 @@ body {
   --tw-text-opacity: 1;
   color: rgb(113 63 18 / var(--tw-text-opacity, 1));
 }
+.text-orange-500{
+  --tw-text-opacity: 1;
+  color: rgb(249 115 22 / var(--tw-text-opacity, 1));
+}
 .shadow-\[0_20px_50px_-25px_rgba\(15\2c 23\2c 42\2c 0\.3\)\]{
   --tw-shadow: 0 20px 50px -25px rgba(15,23,42,0.3);
   --tw-shadow-colored: 0 20px 50px -25px var(--tw-shadow-color);
@@ -2347,6 +2351,11 @@ body {
 .hover\:border-slate-300:hover{
   --tw-border-opacity: 1;
   border-color: rgb(203 213 225 / var(--tw-border-opacity, 1));
+}
+
+.hover\:border-emerald-300:hover{
+  --tw-border-opacity: 1;
+  border-color: rgb(110 231 183 / var(--tw-border-opacity, 1));
 }
 
 .hover\:bg-blue-700:hover{

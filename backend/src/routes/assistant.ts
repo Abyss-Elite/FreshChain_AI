@@ -177,6 +177,7 @@ assistantRouter.post(
         shipment,
       });
     } catch (error: any) {
+      if (error instanceof HttpError) throw error;
       throw new HttpError(400, error.message);
     }
   }),

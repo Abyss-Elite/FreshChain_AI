@@ -9,6 +9,12 @@ import {
 import { asyncHandler, HttpError } from "../utils/http.js";
 import { prisma } from "../utils/prisma.js";
 import {
+  assertTruckPlateNotDuplicate,
+  assertShipmentNotDuplicate,
+  normalizePlate,
+} from "../services/duplicateCheck.js";
+import { Prisma } from "@prisma/client";
+import {
   getIOInstance,
   broadcastDealUpdated,
 } from "../socket/deal-handlers.js";
@@ -66,9 +72,89 @@ apiRouter.get("/health", (_req, res) =>
   res.json({ ok: true, service: "FreshChain AI API" }),
 );
 
+const dashboardChart = [
+  { day: "T2", shipments: 18, savings: 12 },
+  { day: "T3", shipments: 22, savings: 15 },
+  { day: "T4", shipments: 19, savings: 11 },
+  { day: "T5", shipments: 31, savings: 21 },
+  { day: "T6", shipments: 27, savings: 19 },
+  { day: "T7", shipments: 35, savings: 24 },
+];
+
 apiRouter.get(
   "/dashboard",
-  asyncHandler(async (_req, res) => {
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.user!.id;
+    const role = req.user!.role;
+
+    // SHIPPER = chủ xe -> tổng quan về đội xe của chính họ
+    if (role === "SHIPPER") {
+      const [totalTrucks, activeTrucks, emptyTrucks, acceptedDeals, myTrucks] =
+        await Promise.all([
+          prisma.truck.count({ where: { ownerId: userId } }),
+          prisma.truck.count({ where: { ownerId: userId, active: true } }),
+          prisma.truck.count({
+            where: { ownerId: userId, remainingKg: { gt: 1000 } },
+          }),
+          prisma.deal.count({
+            where: { truck: { ownerId: userId }, status: "ACCEPTED" },
+          }),
+          prisma.truck.findMany({
+            where: { ownerId: userId },
+            take: 8,
+            orderBy: { eta: "asc" },
+          }),
+        ]);
+
+      return res.json({
+        role,
+        stats: {
+          totalTrucks,
+          activeTrucks,
+          emptyTrucks,
+          acceptedDeals,
+        },
+        chart: dashboardChart,
+        trucks: myTrucks,
+      });
+    }
+
+    // CARRIER = chủ hàng -> tổng quan về đơn hàng của chính họ
+    if (role === "CARRIER") {
+      const [totalOrders, matchingOrders, negotiatingOrders, signedDeals, myShipments] =
+        await Promise.all([
+          prisma.shipment.count({ where: { ownerId: userId } }),
+          prisma.shipment.count({
+            where: { ownerId: userId, status: "MATCHING" },
+          }),
+          prisma.shipment.count({
+            where: { ownerId: userId, status: "NEGOTIATING" },
+          }),
+          prisma.deal.count({
+            where: { shipment: { ownerId: userId }, status: "ACCEPTED" },
+          }),
+          prisma.shipment.findMany({
+            where: { ownerId: userId },
+            take: 8,
+            orderBy: { createdAt: "desc" },
+          }),
+        ]);
+
+      return res.json({
+        role,
+        stats: {
+          totalOrders,
+          matchingOrders,
+          negotiatingOrders,
+          signedDeals,
+        },
+        chart: dashboardChart,
+        shipments: myShipments,
+      });
+    }
+
+    // ADMIN -> tổng quan toàn hệ thống
     const [orders, activeTrucks, emptyTrucks, shipments] = await Promise.all([
       prisma.shipment.count(),
       prisma.truck.count({ where: { active: true } }),
@@ -76,6 +162,7 @@ apiRouter.get(
       prisma.shipment.findMany({ take: 8, orderBy: { createdAt: "desc" } }),
     ]);
     res.json({
+      role,
       stats: {
         orders,
         activeTrucks,
@@ -83,14 +170,7 @@ apiRouter.get(
         loadOptimization: 82,
         savings: 186500000,
       },
-      chart: [
-        { day: "T2", shipments: 18, savings: 12 },
-        { day: "T3", shipments: 22, savings: 15 },
-        { day: "T4", shipments: 19, savings: 11 },
-        { day: "T5", shipments: 31, savings: 21 },
-        { day: "T6", shipments: 27, savings: 19 },
-        { day: "T7", shipments: 35, savings: 24 },
-      ],
+      chart: dashboardChart,
       shipments,
     });
   }),
@@ -239,6 +319,29 @@ apiRouter.post(
   requireRole("CARRIER", "ADMIN"),
   asyncHandler(async (req, res) => {
     const data = shipmentSchema.parse(req.body);
+    await assertShipmentNotDuplicate({
+      ownerId: req.user!.id,
+      cargoType: data.cargoType,
+      category: data.category,
+      weightKg: data.weightKg,
+      requiredTempMin: data.requiredTempMin,
+      requiredTempMax: data.requiredTempMax,
+      pickup: data.pickup,
+      dropoff: data.dropoff,
+      pickupLat: data.pickupLat,
+      pickupLng: data.pickupLng,
+      dropoffLat: data.dropoffLat,
+      dropoffLng: data.dropoffLng,
+      deliveryTime: data.deliveryTime,
+      proposedPrice: data.proposedPrice,
+      notes: data.notes ?? null,
+      strongSmell: data.strongSmell,
+      fragile: data.fragile,
+      frozenRequired: data.frozenRequired,
+      specialTemperature: data.specialTemperature,
+      allowCombine: data.allowCombine,
+      compatibilityNote: data.compatibilityNote ?? null,
+    });
     const shipment = await prisma.shipment.create({
       data: { ...data, ownerId: req.user!.id, status: "MATCHING" },
     });
@@ -276,14 +379,31 @@ apiRouter.post(
     if (data.refrigerated && data.tempMin! > data.tempMax!) {
       throw new HttpError(400, "Nhiệt độ tối thiểu không được lớn hơn tối đa");
     }
-    const truck = await prisma.truck.create({
-      data: {
-        ...data,
-        tempMin: data.refrigerated ? data.tempMin : null,
-        tempMax: data.refrigerated ? data.tempMax : null,
-        ownerId: req.user!.id,
-      },
-    });
+    const normalizedPlate = normalizePlate(data.plateNumber);
+    await assertTruckPlateNotDuplicate(normalizedPlate);
+    let truck;
+    try {
+      truck = await prisma.truck.create({
+        data: {
+          ...data,
+          plateNumber: normalizedPlate,
+          tempMin: data.refrigerated ? data.tempMin : null,
+          tempMax: data.refrigerated ? data.tempMax : null,
+          ownerId: req.user!.id,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw new HttpError(
+          409,
+          "Biển số xe đã tồn tại trong hệ thống. Vui lòng kiểm tra lại thông tin.",
+        );
+      }
+      throw error;
+    }
     res.status(201).json(truck);
   }),
 );

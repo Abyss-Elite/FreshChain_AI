@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Edit2, Loader2, Package, Plus, Search, Trash2 } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -89,7 +89,25 @@ function toLocalInput(date?: string) {
 }
 
 export default function ShipmentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <DashboardShell>
+          <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
+            <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+            Đang tải dữ liệu đơn hàng...
+          </div>
+        </DashboardShell>
+      }
+    >
+      <ShipmentsContent />
+    </Suspense>
+  );
+}
+
+function ShipmentsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [shipments, setShipments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -98,7 +116,7 @@ export default function ShipmentsPage() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [page, setPage] = useState(1);
 
   const loadShipments = async () => {

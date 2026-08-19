@@ -52,8 +52,8 @@ test("handles shipment locations that include facility names before the city", (
     maxCapacityKg: 5000,
     remainingKg: 3500,
     refrigerated: true,
-    tempMin: -20,
-    tempMax: -5,
+    tempMin: -16,
+    tempMax: -12,
     eta: new Date("2026-08-11T00:00:00.000Z"),
   } as any;
 
@@ -76,4 +76,66 @@ test("handles shipment locations that include facility names before the city", (
 
   assert.equal(isRouteCompatible(shipment, truck), true);
   assert.equal(isTruckEligibleForShipment(shipment, truck), true);
+});
+
+test("matches when the truck's operating temperature range sits inside the shipment's acceptable range", () => {
+  const truck = {
+    currentRoute: "Cà Mau -> Đà Nẵng",
+    maxCapacityKg: 1000,
+    remainingKg: 1000,
+    refrigerated: true,
+    tempMin: 15,
+    tempMax: 20,
+    eta: new Date("2026-08-11T00:00:00.000Z"),
+  } as any;
+
+  const shipment = {
+    pickup: "Hồ Chí Minh",
+    dropoff: "Đà Nẵng",
+    weightKg: 20,
+    requiredTempMin: 11,
+    requiredTempMax: 24,
+    frozenRequired: false,
+    specialTemperature: true,
+    allowCombine: true,
+    cargoType: "Rau Muống",
+    category: "Thực phẩm tươi sống",
+    deliveryTime: new Date("2026-08-20T00:00:00.000Z"),
+    proposedPrice: 80000,
+    strongSmell: false,
+    fragile: false,
+  } as any;
+
+  assert.equal(isTruckEligibleForShipment(shipment, truck), true);
+});
+
+test("rejects when the truck's operating temperature range falls outside the shipment's acceptable range", () => {
+  const truck = {
+    currentRoute: "Cà Mau -> Đà Nẵng",
+    maxCapacityKg: 1000,
+    remainingKg: 1000,
+    refrigerated: true,
+    tempMin: 5,
+    tempMax: 20,
+    eta: new Date("2026-08-11T00:00:00.000Z"),
+  } as any;
+
+  const shipment = {
+    pickup: "Hồ Chí Minh",
+    dropoff: "Đà Nẵng",
+    weightKg: 20,
+    requiredTempMin: 11,
+    requiredTempMax: 24,
+    frozenRequired: false,
+    specialTemperature: true,
+    allowCombine: true,
+    cargoType: "Rau Muống",
+    category: "Thực phẩm tươi sống",
+    deliveryTime: new Date("2026-08-20T00:00:00.000Z"),
+    proposedPrice: 80000,
+    strongSmell: false,
+    fragile: false,
+  } as any;
+
+  assert.equal(isTruckEligibleForShipment(shipment, truck), false);
 });

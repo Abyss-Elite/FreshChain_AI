@@ -1,5 +1,6 @@
 import { OrderAssistantSession, AssistantSessionStatus } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
+import { assertShipmentNotDuplicate } from "./duplicateCheck.js";
 
 // Define required fields for a complete order
 const REQUIRED_FIELDS = [
@@ -619,6 +620,31 @@ export async function submitOrderFromSession(
         ? session.dropoffLng
         : 106.6297; // Fallback: TP.HCM
   // =========================================================================
+
+  // Duplicate check: reject if an identical shipment already exists for this owner
+  await assertShipmentNotDuplicate({
+    ownerId: userId,
+    cargoType: session.cargoType!,
+    category: session.category!,
+    weightKg: session.weightKg!,
+    requiredTempMin: session.requiredTempMin!,
+    requiredTempMax: session.requiredTempMax!,
+    pickup: session.pickup!,
+    dropoff: session.dropoff!,
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+    deliveryTime: session.deliveryTime!,
+    proposedPrice: session.proposedPrice!,
+    notes: session.notes || null,
+    strongSmell: session.strongSmell ?? false,
+    fragile: session.fragile ?? false,
+    frozenRequired: session.frozenRequired ?? false,
+    specialTemperature: session.specialTemperature ?? false,
+    allowCombine,
+    compatibilityNote: session.compatibilityNote || null,
+  });
 
   // Create shipment
   const shipment = await prisma.shipment.create({

@@ -2,6 +2,10 @@ import { AssistantSessionStatus, Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
 import { HttpError } from "../utils/http.js";
 import { vietnamLogisticsLocations } from "./orderAssistant.js";
+import {
+  assertTruckPlateNotDuplicate,
+  assertShipmentNotDuplicate,
+} from "./duplicateCheck.js";
 
 export function canCreateTruck(role: string) {
   return ["SHIPPER", "ADMIN"].includes(role);
@@ -672,6 +676,14 @@ function normalizeLocationToCity(
   return normalized;
 }
 
+function isKnownVietnamLocation(value?: string): boolean {
+  if (!value) return false;
+  const normalizedNoAccent = stripDiacritics(value).toLowerCase();
+  return vietnamLogisticsLocations.some((city) =>
+    normalizedNoAccent.includes(stripDiacritics(city).toLowerCase()),
+  );
+}
+
 function parseTemperatureRangeText(value?: string) {
   if (!value) return {};
 
@@ -826,11 +838,13 @@ export function inferShipmentDraftNormalized(
     /\bdon tai\s+(.+?)(?=\s*,\s*\bgiao den\b|\s+\bgiao den\b|\bluc\b|$)/i,
     /\bgiao tu\s+(.+?)(?=\s+den\b|\s*,\s*den\b)/i,
     /\bvan chuyen tu\s+(.+?)(?=\s+den\b|\s*,\s*den\b)/i,
+    /\bdi tu\s+(.+?)(?=\s+\bden\b|\s*,\s*\bden\b)/i,
   ]);
   const dropoff = extractFirstMatch(input, [
     /\bgiao den\s+(.+?)(?=\s*,\s*\bluc\b|\s+\bluc\b|$)/i,
     /\bgiao tu\s+.+?\s+den\s+(.+?)(?=\s*,|\s+\bluc\b|$)/i,
     /\bvan chuyen tu\s+.+?\s+den\s+(.+?)(?=\s*,|\s+\bluc\b|$)/i,
+    /\bdi tu\s+.+?\s+\bden\s+(.+?)(?=,|\s+\bluc\b|\bthoi gian\b|\bdu kien\b|\bgia\b|$)/i,
     /\bden\s+(.+?)(?=\s*,\s*\bluc\b|\s+\bluc\b|$)/i,
   ]);
   const weightText = extractFirstMatch(input, [
@@ -1261,7 +1275,7 @@ function validateTruckDraft(draft: TruckDraft) {
 }
 
 
-function validateShipmentDraft(draft: ShipmentDraft) {
+export function validateShipmentDraft(draft: ShipmentDraft) {
   const missingFields: string[] = [];
   const validationErrors: string[] = [];
 
@@ -1291,6 +1305,25 @@ function validateShipmentDraft(draft: ShipmentDraft) {
     draft.requiredTempMin > draft.requiredTempMax
   ) {
     validationErrors.push("requiredTempMin không được lớn hơn requiredTempMax");
+  }
+
+  if (
+    draft.pickup &&
+    draft.pickup.trim().length >= 2 &&
+    !isKnownVietnamLocation(draft.pickup)
+  ) {
+    validationErrors.push(
+      `Địa điểm lấy hàng "${draft.pickup.trim()}" không có trong danh sách địa danh được hỗ trợ`,
+    );
+  }
+  if (
+    draft.dropoff &&
+    draft.dropoff.trim().length >= 2 &&
+    !isKnownVietnamLocation(draft.dropoff)
+  ) {
+    validationErrors.push(
+      `Địa điểm giao hàng "${draft.dropoff.trim()}" không có trong danh sách địa danh được hỗ trợ`,
+    );
   }
 
   return { missingFields, validationErrors };
@@ -1820,21 +1853,17 @@ export async function executeCopilotSession(args: {
     const truckDraft = draft as TruckDraft;
     const normalizedPlate = normalizePlateNumber(truckDraft.plateNumber!)!;
 
-    const existingTruck = await prisma.truck.findUnique({
-      where: { plateNumber: normalizedPlate },
-      select: { id: true },
-    });
-
-    if (existingTruck) {
-      await saveCopilotSession(session.id, {
-        copilotStatus: "FAILED",
-        copilotValidationErrors: ["plateNumber"],
-        copilotConfirmationMessage: null,
-      });
-      throw new HttpError(
-        409,
-        "Dữ liệu đã tồn tại hoặc bị trùng. Vui lòng kiểm tra lại thông tin.",
-      );
+    try {
+      await assertTruckPlateNotDuplicate(normalizedPlate);
+    } catch (error) {
+      if (error instanceof HttpError) {
+        await saveCopilotSession(session.id, {
+          copilotStatus: "FAILED",
+          copilotValidationErrors: ["plateNumber"],
+          copilotConfirmationMessage: null,
+        });
+      }
+      throw error;
     }
 
     let truck;
@@ -1889,29 +1918,47 @@ export async function executeCopilotSession(args: {
   }
 
   const shipmentDraft = draft as ShipmentDraft;
+  const shipmentData = {
+    ownerId: args.userId,
+    cargoType: shipmentDraft.cargoType!.trim(),
+    category: shipmentDraft.category!.trim(),
+    weightKg: shipmentDraft.weightKg!,
+    requiredTempMin: shipmentDraft.requiredTempMin!,
+    requiredTempMax: shipmentDraft.requiredTempMax!,
+    pickup: shipmentDraft.pickup!.trim(),
+    dropoff: shipmentDraft.dropoff!.trim(),
+    pickupLat: shipmentDraft.pickupLat ?? 11.94,
+    pickupLng: shipmentDraft.pickupLng ?? 108.45,
+    dropoffLat: shipmentDraft.dropoffLat ?? 10.82,
+    dropoffLng: shipmentDraft.dropoffLng ?? 106.63,
+    deliveryTime: shipmentDraft.deliveryTime!,
+    proposedPrice: shipmentDraft.proposedPrice!,
+    notes: shipmentDraft.notes || null,
+    strongSmell: shipmentDraft.strongSmell ?? false,
+    fragile: shipmentDraft.fragile ?? false,
+    frozenRequired: shipmentDraft.frozenRequired ?? false,
+    specialTemperature: shipmentDraft.specialTemperature ?? false,
+    allowCombine: shipmentDraft.allowCombine ?? true,
+    compatibilityNote: shipmentDraft.compatibilityNote || null,
+  };
+
+  try {
+    await assertShipmentNotDuplicate(shipmentData);
+  } catch (error) {
+    if (error instanceof HttpError) {
+      await saveCopilotSession(session.id, {
+        copilotStatus: "FAILED",
+        copilotConfirmationMessage: null,
+      });
+    }
+    throw error;
+  }
+
   const shipment = await prisma.shipment.create({
     data: {
-      ownerId: args.userId,
-      cargoType: shipmentDraft.cargoType!.trim(),
-      category: shipmentDraft.category!.trim(),
-      weightKg: shipmentDraft.weightKg!,
-      requiredTempMin: shipmentDraft.requiredTempMin!,
-      requiredTempMax: shipmentDraft.requiredTempMax!,
-      pickup: shipmentDraft.pickup!.trim(),
-      dropoff: shipmentDraft.dropoff!.trim(),
-      pickupLat: shipmentDraft.pickupLat ?? 11.94,
-      pickupLng: shipmentDraft.pickupLng ?? 108.45,
-      dropoffLat: shipmentDraft.dropoffLat ?? 10.82,
-      dropoffLng: shipmentDraft.dropoffLng ?? 106.63,
-      deliveryTime: shipmentDraft.deliveryTime!,
-      proposedPrice: shipmentDraft.proposedPrice!,
-      notes: shipmentDraft.notes || undefined,
-      strongSmell: shipmentDraft.strongSmell ?? false,
-      fragile: shipmentDraft.fragile ?? false,
-      frozenRequired: shipmentDraft.frozenRequired ?? false,
-      specialTemperature: shipmentDraft.specialTemperature ?? false,
-      allowCombine: shipmentDraft.allowCombine ?? true,
-      compatibilityNote: shipmentDraft.compatibilityNote || undefined,
+      ...shipmentData,
+      notes: shipmentData.notes ?? undefined,
+      compatibilityNote: shipmentData.compatibilityNote ?? undefined,
       status: "MATCHING",
     },
   });
