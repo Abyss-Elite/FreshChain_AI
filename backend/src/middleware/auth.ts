@@ -17,13 +17,19 @@ export function signToken(user: AuthUser) {
 }
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token) throw new HttpError(401, "Missing authorization token");
   try {
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) throw new HttpError(401, "Missing authorization token");
     req.user = jwt.verify(token, process.env.JWT_SECRET || "freshchain-demo") as AuthUser;
     next();
-  } catch {
-    throw new HttpError(401, "Invalid token");
+  } catch (error) {
+    if (error instanceof HttpError) {
+      next(error);
+    } else if (error instanceof jwt.JsonWebTokenError) {
+      next(new HttpError(401, "Invalid token"));
+    } else {
+      next(error);
+    }
   }
 }
 

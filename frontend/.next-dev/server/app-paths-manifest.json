@@ -1,0 +1,7 @@
+{
+  "/page": "app/page.js",
+  "/matching/page": "app/matching/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js",
+  "/trucks/page": "app/trucks/page.js",
+  "/create-order-ai/page": "app/create-order-ai/page.js"
+}

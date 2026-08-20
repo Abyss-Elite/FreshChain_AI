@@ -7,12 +7,13 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "test:copilot": "node --import tsx --test src/services/__tests__/transportCopilot.test.ts src/services/__tests__/matching.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.8.2",
+    "@prisma/client": "^6.19.3",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -31,7 +32,7 @@
     "@types/morgan": "^1.9.9",
     "@types/node": "^22.10.2",
     "prisma": "^6.8.2",
-    "tsx": "^4.19.2",
+    "tsx": "^4.22.3",
     "typescript": "^5.7.2"
   }
 }
